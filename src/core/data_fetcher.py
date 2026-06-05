@@ -96,6 +96,9 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             temp_dims = ds_var.dims
             is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
+            # Define a 1.5 degree buffer to prevent any edge contour gaps
+            padding = 1.5
+
             if is_projected:
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
                 y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
@@ -104,8 +107,8 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 
                 transformed_corners = data_proj.transform_points(
                     ccrs.PlateCarree(), 
-                    np.array([region.extent[0], region.extent[1]]), 
-                    np.array([region.extent[2], region.extent[3]])
+                    np.array([region.extent[0] - padding, region.extent[1] + padding]), 
+                    np.array([region.extent[2] - padding, region.extent[3] + padding])
                 )
                 x_slice = slice(min(transformed_corners[:, 0]), max(transformed_corners[:, 0]))
                 y_slice = slice(min(transformed_corners[:, 1]), max(transformed_corners[:, 1]))
@@ -133,8 +136,8 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 y_dim = ds[lat_var].dims[0]
                 x_dim = ds[lon_var].dims[0]
                 
-                lat_indices = np.where((lat_arr >= region.extent[2]) & (lat_arr <= region.extent[3]))[0]
-                lon_indices = np.where((lon_arr >= region.extent[0]) & (lon_arr <= region.extent[1]))[0]
+                lat_indices = np.where((lat_arr >= region.extent[2] - padding) & (lat_arr <= region.extent[3] + padding))[0]
+                lon_indices = np.where((lon_arr >= region.extent[0] - padding) & (lon_arr <= region.extent[1] + padding))[0]
                 
                 y_slice = slice(min(lat_indices), max(lat_indices) + 1)
                 x_slice = slice(min(lon_indices), max(lon_indices) + 1)
