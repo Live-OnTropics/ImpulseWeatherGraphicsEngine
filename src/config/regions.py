@@ -3,7 +3,7 @@
 class TexasRegion:
     name = "Texas"
     extent = [-112.44, -87.56, 24.0, 38.0]
-    mask_state = "Texas"  # Only the full state gets the cutout mask
+    mask_state = "Texas"
     timezone_str = "America/Chicago"
     cities = {
         'AMARILLO': (35.2219, -101.8313),
@@ -21,7 +21,7 @@ class TexasRegion:
 class PanhandleRegion:
     name = "Panhandle"
     extent = [-105.44, -96.56, 31.9, 36.9]
-    mask_state = None  # Full-bleed layout
+    mask_state = "Texas"  # Re-enabled Texas cutout masking
     timezone_str = "America/Chicago"
     cities = {
         'AMARILLO': (35.2219, -101.8313),
@@ -34,7 +34,7 @@ class PanhandleRegion:
 class WestTexasRegion:
     name = "West Texas"
     extent = [-107.89, -99.01, 28.8, 33.8]
-    mask_state = None  # Full-bleed layout
+    mask_state = "Texas"  # Re-enabled Texas cutout masking
     timezone_str = "America/Chicago"
     cities = {
         'EL PASO': (31.7619, -106.4850),
@@ -51,7 +51,7 @@ class WestTexasRegion:
 class TriangleTexasRegion:
     name = "The Triangle Texas"
     extent = [-101.04, -92.16, 29.1, 34.1]
-    mask_state = None  # Full-bleed layout
+    mask_state = "Texas"  # Re-enabled Texas cutout masking
     timezone_str = "America/Chicago"
     cities = {
         'TEXARKANA': (33.4251, -94.0477),
@@ -70,7 +70,7 @@ class TriangleTexasRegion:
 class SouthTexasRegion:
     name = "South Texas"
     extent = [-102.94, -94.06, 24.9, 29.9]
-    mask_state = None  # Full-bleed layout
+    mask_state = "Texas"  # Re-enabled Texas cutout masking
     timezone_str = "America/Chicago"
     cities = {
         'EAGLE PASS': (28.7086, -100.4903),
