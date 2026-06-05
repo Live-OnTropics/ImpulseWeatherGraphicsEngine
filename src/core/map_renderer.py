@@ -65,6 +65,8 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_map.set_extent(region.extent, crs=ccrs.PlateCarree())
     
     is_spc = "Convective Outlook" in map_type
+    base_land_color = '#1b2432'  # Deep slate-blue base contrast color
+    state_facecolor = base_land_color if is_spc else 'none'
     
     # ----------------------------------------------------
     # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
@@ -79,26 +81,40 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         features_sorted = sorted(features, key=lambda f: RISK_ORDER.get(f["properties"].get("LABEL2", ""), 0))
         
         SPC_COLORS = {
-            "TSTM": "#B7E9C1", "MRGL": "#7FE57F", "SLGT": "#FFE57F",
-            "ENH":  "#FFA54F", "MDT":  "#E50000", "HIGH": "#E500E5"
-        }
-        SPC_BORDER_COLORS = {
-            "TSTM": "#005500", "MRGL": "#005500", "SLGT": "#997A00",
-            "ENH":  "#994C00", "MDT":  "#660000", "HIGH": "#660066"
+            "TSTM": "#244a34",  # Adjusted to a deep forest green for smooth land transition
+            "MRGL": "#55aa55",  # Medium grass green
+            "SLGT": "#ffe066",  # Bright warm yellow
+            "ENH":  "#ff9933",  # Vibrant orange
+            "MDT":  "#cc1111",  # Pure red
+            "HIGH": "#e500e5"   # High magenta
         }
         
         for f in sorted(features_sorted, key=lambda x: RISK_ORDER.get(x["properties"].get("LABEL2", ""), 0)):
-            label2 = f["properties"].get("LABEL2", "")
-            if not label2:
+            # Normalize target keys securely to identify MRGL and TSTM risk values
+            label = f["properties"].get("LABEL", "").strip().upper()
+            if not label:
+                label = f["properties"].get("LABEL2", "").strip().upper()
+                
+            RISK_MAP = {
+                "TSTM": "TSTM", "GENERAL THUNDERSTORMS RISK": "TSTM", "GENERAL THUNDERSTORMS": "TSTM",
+                "MRGL": "MRGL", "MARGINAL RISK": "MRGL", "MARGINAL": "MRGL",
+                "SLGT": "SLGT", "SLIGHT RISK": "SLGT", "SLIGHT": "SLGT",
+                "ENH": "ENH", "ENHANCED RISK": "ENH", "ENHANCED": "ENH",
+                "MDT": "MDT", "MODERATE RISK": "MDT", "MODERATE": "MDT",
+                "HIGH": "HIGH", "HIGH RISK": "HIGH"
+            }
+            risk_code = RISK_MAP.get(label, "")
+            if not risk_code:
                 continue
-            fill_color = SPC_COLORS.get(label2, "#ffffff")
-            border_color = SPC_BORDER_COLORS.get(label2, "#000000")
+                
+            fill_color = SPC_COLORS.get(risk_code, "#ffffff")
             
             try:
                 geom = shape(f["geometry"])
+                # Removed outlines completely (edgecolor='none', linewidth=0, and Z-Order 2.0 to sit on top of land)
                 ax_map.add_geometries([geom], crs=ccrs.PlateCarree(),
-                                      facecolor=fill_color, edgecolor=border_color,
-                                      linewidth=1.2, alpha=0.6, zorder=1)
+                                      facecolor=fill_color, edgecolor='none',
+                                      linewidth=0, alpha=0.6, zorder=2.0)
             except Exception as e:
                 print(f"Error rendering SPC shape: {e}")
     else:
@@ -122,7 +138,8 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         counties_shp = shapereader.natural_earth(resolution='10m', category='cultural', name='admin_2_counties')
         counties_reader = shapereader.Reader(counties_shp)
         counties_feature = cfeature.ShapelyFeature(counties_reader.geometries(), ccrs.PlateCarree())
-        ax_map.add_feature(counties_feature, facecolor='none', edgecolor='white', linewidth=0.45, alpha=0.35, zorder=2)
+        # Drawn at Z-Order 3.0 on top of the weather shapes and base land mass
+        ax_map.add_feature(counties_feature, facecolor='none', edgecolor='white', linewidth=0.45, alpha=0.35, zorder=3.0)
     except:
         pass
     
@@ -141,7 +158,11 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                 map_box = box(region.extent[0]-3, region.extent[2]-3, region.extent[1]+3, region.extent[3]+3)
                 state_negative_mask = map_box.difference(state_geom)
                 
-                ax_map.add_geometries([state_negative_mask], crs=ccrs.PlateCarree(), facecolor='#151c24', edgecolor='none', zorder=3)
+                # Surround states blacked out at Z-Order 4.5
+                ax_map.add_geometries([state_negative_mask], crs=ccrs.PlateCarree(), facecolor='#151c24', edgecolor='none', zorder=4.5)
+                # State base fill at Z-Order 1.5
+                ax_map.add_geometries([state_geom], crs=ccrs.PlateCarree(), facecolor=state_facecolor, edgecolor='none', zorder=1.5)
+                # Thick focus border outline at Z-Order 5.0
                 ax_map.add_geometries([state_geom], crs=ccrs.PlateCarree(), facecolor='none', edgecolor='white', linewidth=1.5, zorder=5)
         except Exception as ex:
             print(f"Skipping geometry mask operations: {ex}")
@@ -155,6 +176,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                     tx_geom = record.geometry
                     break
             if tx_geom is not None:
+                ax_map.add_geometries([tx_geom], crs=ccrs.PlateCarree(), facecolor=state_facecolor, edgecolor='none', zorder=1.5)
                 ax_map.add_geometries([tx_geom], crs=ccrs.PlateCarree(), facecolor='none', edgecolor='white', linewidth=1.5, zorder=5)
         except Exception as ex:
             print(f"Skipping Texas highlight border: {ex}")
@@ -270,8 +292,8 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         ax_legend.set_ylim(0, 1)
         
         SPC_COLORS = {
-            "TSTM": "#B7E9C1", "MRGL": "#7FE57F", "SLGT": "#FFE57F",
-            "ENH":  "#FFA54F", "MDT":  "#E50000", "HIGH": "#E500E5"
+            "TSTM": "#244a34", "MRGL": "#55aa55", "SLGT": "#ffe066",
+            "ENH":  "#ff9933", "MDT":  "#cc1111", "HIGH": "#e500e5"
         }
         risks = ["TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"]
         for i, r in enumerate(risks):
