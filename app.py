@@ -14,24 +14,23 @@ from src.core.map_renderer import render_map
 import streamlit.runtime as st_runtime
 is_streamlit = st_runtime.exists()
 
-def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_str, selected_region_name, uploaded_logo):
+def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_str, selected_region_name):
     try:
         product = TemperatureProduct()
         
-        # Instantiate the region class from the registry
         region_class = REGIONS.get(selected_region_name, TexasRegion)
         region = region_class()
 
-        # 1. Fetch grid coordinates and metrics dynamically for the product & region
+        # 1. Fetch grid coordinates and metrics
         grid_lon, grid_lat, grid_values, map_label_values, model_name, data_proj, run_cycle_str = get_model_data(
             target_model, map_type, forecast_setting, product, region
         )
         
-        # 2. Render regionalized visual canvas
+        # 2. Render regionalized visual canvas using static assets
         fig = render_map(
             grid_lon, grid_lat, grid_values, map_label_values, 
             model_name, data_proj, map_type, forecast_setting_str, 
-            run_cycle_str, product, region, uploaded_logo_file=uploaded_logo
+            run_cycle_str, product, region, uploaded_logo_file=None
         )
         
         # 3. Save resulting visualization thread-safely
@@ -98,15 +97,13 @@ if __name__ == '__main__':
         selected_day_label = st.sidebar.selectbox("Select Forecast Day:", day_options)
         forecast_setting = day_mapping[selected_day_label]
         forecast_setting_str = (today_date + datetime.timedelta(days=forecast_setting)).strftime("%A").upper()
-            
-        uploaded_logo = st.sidebar.file_uploader("Upload Brand Logo (Optional):", type=["png"])
         
         if st.sidebar.button("Generate Map", type="primary"):
             with st.spinner("Connecting to NCEP servers and compiling map..."):
                 success, result = execute_pipeline(
                     selected_model, selected_map_type, 
                     forecast_setting, forecast_setting_str, 
-                    selected_region_name, uploaded_logo
+                    selected_region_name
                 )
                 
                 if success:
@@ -125,7 +122,7 @@ if __name__ == '__main__':
             st.write(f"Refreshed: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     else:
         print("Executing local weather generation pipeline...")
-        success, result = execute_pipeline("GFS", "Forecast High Temperatures", 0, "TODAY", "Texas", None)
+        success, result = execute_pipeline("GFS", "Forecast High Temperatures", 0, "TODAY", "Texas")
         if success:
             print(f"Map successfully saved to {result}")
         else:
