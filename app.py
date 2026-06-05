@@ -6,7 +6,7 @@ import streamlit as st
 
 # Custom modular backends
 from src.config.models import MODEL_ENDPOINTS
-from src.config.regions import TexasRegion
+from src.config.regions import REGIONS, TexasRegion
 from src.products.temperature import TemperatureProduct
 from src.core.data_fetcher import get_model_data
 from src.core.map_renderer import render_map
@@ -14,18 +14,20 @@ from src.core.map_renderer import render_map
 import streamlit.runtime as st_runtime
 is_streamlit = st_runtime.exists()
 
-def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_str, uploaded_logo):
+def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_str, selected_region_name, uploaded_logo):
     try:
-        # Instantiate current Product & target Region definitions
         product = TemperatureProduct()
-        region = TexasRegion()
+        
+        # Instantiate the region class from the registry
+        region_class = REGIONS.get(selected_region_name, TexasRegion)
+        region = region_class()
 
-        # 1. Fetch grid coordinates and array metrics dynamically
+        # 1. Fetch grid coordinates and metrics dynamically for the product & region
         grid_lon, grid_lat, grid_values, map_label_values, model_name, data_proj, run_cycle_str = get_model_data(
             target_model, map_type, forecast_setting, product, region
         )
         
-        # 2. Plot grid overlay inside basemap parameters
+        # 2. Render regionalized visual canvas
         fig = render_map(
             grid_lon, grid_lat, grid_values, map_label_values, 
             model_name, data_proj, map_type, forecast_setting_str, 
@@ -48,12 +50,20 @@ if __name__ == '__main__':
         st.title("Impulse Weather Map Dashboard")
         st.write("Configure your options on the sidebar and click **Generate Map**.")
         
+        # 1. Model Selection
         selected_model = st.sidebar.selectbox(
             "Select Numerical Model:",
             ["NDFD", "HRRR (2.5km)", "NAM (12km)", "GFS"],
             index=3
         )
         
+        # 2. Map Region Selection
+        selected_region_name = st.sidebar.selectbox(
+            "Select Map Region:",
+            list(REGIONS.keys())
+        )
+        
+        # 3. Map Type Selection
         selected_map_type = st.sidebar.selectbox(
             "Select Map Type:",
             ["Forecast High Temperatures", "Forecast Low Temperatures"]
@@ -72,9 +82,10 @@ if __name__ == '__main__':
             
         max_days = selected_ep.get("max_days", 5)
         
-        # Keep calendar parameters aligned to regional local timezone boundaries
-        austin_tz = zoneinfo.ZoneInfo("America/Chicago")
-        today_date = datetime.datetime.now(austin_tz).date()
+        # Align calendar boundaries to regional local timezones
+        region_class = REGIONS.get(selected_region_name, TexasRegion)
+        local_tz = zoneinfo.ZoneInfo(region_class.timezone_str)
+        today_date = datetime.datetime.now(local_tz).date()
         
         day_options = []
         day_mapping = {}
@@ -94,7 +105,8 @@ if __name__ == '__main__':
             with st.spinner("Connecting to NCEP servers and compiling map..."):
                 success, result = execute_pipeline(
                     selected_model, selected_map_type, 
-                    forecast_setting, forecast_setting_str, uploaded_logo
+                    forecast_setting, forecast_setting_str, 
+                    selected_region_name, uploaded_logo
                 )
                 
                 if success:
@@ -113,7 +125,7 @@ if __name__ == '__main__':
             st.write(f"Refreshed: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     else:
         print("Executing local weather generation pipeline...")
-        success, result = execute_pipeline("GFS", "Forecast High Temperatures", 0, "TODAY", None)
+        success, result = execute_pipeline("GFS", "Forecast High Temperatures", 0, "TODAY", "Texas", None)
         if success:
             print(f"Map successfully saved to {result}")
         else:
