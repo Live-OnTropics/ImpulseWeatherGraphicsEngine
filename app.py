@@ -1,9 +1,11 @@
 # app.py
 import os
 import datetime
+import zoneinfo
 import streamlit as st
 
 # Import custom modular backend elements
+from src.config import MODEL_ENDPOINTS
 from src.data_fetcher import get_model_data
 from src.map_renderer import render_texas_map
 
@@ -39,24 +41,42 @@ if __name__ == '__main__':
         st.title("Impulse Weather Map Dashboard")
         st.write("Configure your options on the sidebar and click **Generate Map**.")
         
-        # 1. Model Selection
+        # 1. Model Selection (GFS is now labeled cleanly)
         selected_model = st.sidebar.selectbox(
             "Select Numerical Model:",
-            ["NDFD", "HRRR (2.5km)", "NAM (12km)", "GFS (0.25deg)"],
+            ["NDFD", "HRRR (2.5km)", "NAM (12km)", "GFS"],
             index=3  # Default GFS
         )
         
-        # 2. Map Type Selection (Temperatures Only)
+        # 2. Map Type Selection
         selected_map_type = st.sidebar.selectbox(
             "Select Map Type:",
             ["Forecast High Temperatures", "Forecast Low Temperatures"]
         )
         
-        # 3. Forecast Day Selection
-        day_mapping = {"Today": 0, "Tomorrow": 1, "Day 3": 2, "Day 4": 3, "Day 5": 4}
-        selected_day_label = st.sidebar.selectbox("Select Forecast Day:", list(day_mapping.keys()))
+        # 3. Dynamic Forecast Day depth limits based on selected model's forecast duration
+        # Find matching endpoint configuration in our configuration
+        selected_ep = [ep for ep in MODEL_ENDPOINTS if selected_model == ep["name"] or (selected_model == "GFS" and ep["name"] == "GFS")][0]
+        max_days = selected_ep.get("max_days", 5)
+        
+        # Establish real calendar dates relative to Austin (Central) Time
+        austin_tz = zoneinfo.ZoneInfo("America/Chicago")
+        today_date = datetime.datetime.now(austin_tz).date()
+        
+        day_options = []
+        day_mapping = {}
+        for i in range(max_days):
+            day_date = today_date + datetime.timedelta(days=i)
+            # Create readable labels like "Friday, Jun 05"
+            day_label = day_date.strftime("%A, %b %d")
+            day_options.append(day_label)
+            day_mapping[day_label] = i
+            
+        selected_day_label = st.sidebar.selectbox("Select Forecast Day:", day_options)
         forecast_setting = day_mapping[selected_day_label]
-        forecast_setting_str = selected_day_label.upper()
+        
+        # Extract name of day (e.g. "FRIDAY")
+        forecast_setting_str = (today_date + datetime.timedelta(days=forecast_setting)).strftime("%A").upper()
             
         # 4. Brand Logo Uploader
         uploaded_logo = st.sidebar.file_uploader("Upload Brand Logo (Optional):", type=["png"])
@@ -86,7 +106,7 @@ if __name__ == '__main__':
     else:
         # Local terminal execution mode
         print("Executing local weather generation pipeline...")
-        success, result = execute_pipeline("GFS (0.25deg)", "Forecast High Temperatures", 0, "TODAY", None)
+        success, result = execute_pipeline("GFS", "Forecast High Temperatures", 0, "TODAY", None)
         if success:
             print(f"Map successfully saved to {result}")
         else:
