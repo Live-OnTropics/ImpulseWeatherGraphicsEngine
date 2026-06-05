@@ -14,7 +14,7 @@ is_streamlit = st_runtime.exists()
 def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_str, uploaded_logo):
     try:
         # 1. Fetch live coordinates safely (Raises ConnectionError if server is offline)
-        grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj = get_model_data(
+        grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj, run_cycle_str = get_model_data(
             target_model, map_type, forecast_setting
         )
         
@@ -22,7 +22,7 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
         fig = render_texas_map(
             grid_lon, grid_lat, grid_temp, map_label_temps, 
             model_name, data_proj, map_type, forecast_setting_str, 
-            uploaded_logo_file=uploaded_logo
+            run_cycle_str, uploaded_logo_file=uploaded_logo
         )
         
         # 3. Save map image thread-safely
@@ -70,7 +70,7 @@ if __name__ == '__main__':
                 
                 if success:
                     st.success("Map generated successfully!")
-                    st.image(result, use_container_width=True)
+                    st.image(result, width='stretch')  # Resolved: use width='stretch' to prevent deprecation warning
                     
                     # File downloader widget
                     with open(result, "rb") as file:
