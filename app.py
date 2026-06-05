@@ -55,8 +55,19 @@ if __name__ == '__main__':
         )
         
         # 3. Dynamic Forecast Day depth limits based on selected model's forecast duration
-        # Find matching endpoint configuration in our configuration
-        selected_ep = [ep for ep in MODEL_ENDPOINTS if selected_model == ep["name"] or (selected_model == "GFS" and ep["name"] == "GFS")][0]
+        # Resilient, case-insensitive substring scanner (prevents any configuration IndexError)
+        selected_ep = None
+        for ep in MODEL_ENDPOINTS:
+            ep_name_lower = ep["name"].lower()
+            sel_model_lower = selected_model.lower()
+            if sel_model_lower in ep_name_lower or ep_name_lower in sel_model_lower:
+                selected_ep = ep
+                break
+                
+        # Safe fallback default in case of any unexpected naming mismatches
+        if selected_ep is None:
+            selected_ep = MODEL_ENDPOINTS[0]
+            
         max_days = selected_ep.get("max_days", 5)
         
         # Establish real calendar dates relative to Austin (Central) Time
