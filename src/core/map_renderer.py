@@ -102,12 +102,14 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             except Exception as e:
                 print(f"Error rendering SPC shape: {e}")
     else:
-        # Gridded temperature contour mapping
+        # Gridded temperature contour mapping (Safely grouped to avoid IndexError)
         vmin, vmax = product.vmin, product.vmax
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         color_range = float(vmax - vmin)
         color_list = [((val - vmin) / color_range, color) for val, color in product.color_points]
         custom_cmap = mcolors.LinearSegmentedColormap.from_list('impulse_product_scale', color_list)
+        ticks = product.colormap_ticks
+        unit_label = product.unit_label
             
         levels = np.linspace(vmin, vmax, 161)
         cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=levels, cmap=custom_cmap, norm=norm,
