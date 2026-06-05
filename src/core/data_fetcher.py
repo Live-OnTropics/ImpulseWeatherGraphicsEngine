@@ -108,8 +108,9 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             padding = 1.5
 
             if is_projected:
-                x_dim = [d for d in temp_dims convert to lower if 'x' in d.lower()][0]
-                y_dim = [d for d in temp_dims convert to lower if 'y' in d.lower()][0]
+                # Syntax corrected here [input_file_5.py]
+                x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
+                y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
                 
                 data_proj = ds_var.metpy.cartopy_crs
                 
@@ -175,22 +176,17 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
                 
-                # Check if the model reports incremental/interval-based precipitation
                 is_incremental = any(k in name.lower() for k in ["hrrr", "rap", "3km", "12km"])
                 
                 if is_incremental:
-                    # Slice from index 0 up to target index to aggregate all steps [input_file_5.py]
                     time_indices = slice(0, target_idx + 1)
                 else:
-                    # GFS/NDFD are already cumulative, so select only the single target index [input_file_5.py]
                     time_indices = [target_idx]
             else:
-                # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
                 target_tz = zoneinfo.ZoneInfo(region.timezone_str)
                 now_local = datetime.datetime.now(target_tz)
@@ -213,7 +209,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 else:
                     val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 
-                # Render floats for precipitation, integers for temperature
                 map_label_temps[city] = round(val, 2) if "Precipitation" in map_type else int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
