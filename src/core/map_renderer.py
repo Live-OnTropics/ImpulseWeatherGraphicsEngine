@@ -54,6 +54,36 @@ def setup_fonts():
     return font_name if font_name in available_fonts else 'sans-serif'
 
 
+def get_risk_code(f):
+    properties = f.get("properties", {})
+    
+    # Parse WPC Excessive Rainfall Outlook style properties
+    outlook_val = str(properties.get("OUTLOOK", "")).upper()
+    if outlook_val:
+        if "MARGINAL" in outlook_val: return "MRGL"
+        if "SLIGHT" in outlook_val: return "SLGT"
+        if "MODERATE" in outlook_val: return "MDT"
+        if "HIGH" in outlook_val: return "HIGH"
+        
+    # Parse standard SPC style properties (LABEL/LABEL2)
+    label = str(properties.get("LABEL", "")).strip().upper()
+    if not label:
+        label = str(properties.get("LABEL2", "")).strip().upper()
+        
+    RISK_MAP = {
+        "TSTM": "TSTM", "GENERAL THUNDERSTORMS RISK": "TSTM", "GENERAL THUNDERSTORMS": "TSTM",
+        "MRGL": "MRGL", "MARGINAL RISK": "MRGL", "MARGINAL": "MRGL",
+        "SLGT": "SLGT", "SLIGHT RISK": "SLGT", "SLIGHT": "SLGT",
+        "ENH": "ENH", "ENHANCED RISK": "ENH", "ENHANCED": "ENH",
+        "MDT": "MDT", "MODERATE RISK": "MDT", "MODERATE": "MDT",
+        "HIGH": "HIGH", "HIGH RISK": "HIGH",
+        # Support Days 4-8 probabilistic definitions
+        "15%": "SLGT", "15": "SLGT",
+        "30%": "ENH", "30": "ENH"
+    }
+    return RISK_MAP.get(label, "")
+
+
 def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, data_proj, map_type, forecast_setting_str, run_cycle_str, product, region, uploaded_logo_file=None):
     font_family = setup_fonts()
     
@@ -65,60 +95,45 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_map.set_extent(region.extent, crs=ccrs.PlateCarree())
     
     is_spc = "Convective Outlook" in map_type
-    base_land_color = '#1b2432'  # Deep slate-blue base contrast color
-    state_facecolor = base_land_color if is_spc else 'none'
+    is_wpc = "Excessive Rainfall" in map_type
+    is_vector = is_spc or is_wpc
+    
+    base_land_color = '#1b2432'
+    state_facecolor = base_land_color if is_vector else 'none'
     
     # ----------------------------------------------------
     # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
     # ----------------------------------------------------
-    if is_spc:
-        # Vector-based polygon mapping for convective outlook boundaries
+    if is_vector:
+        # Vector-based polygon mapping for convective/excessive rainfall outlook boundaries
         features = grid_values if grid_values is not None else []
         from shapely.geometry import shape
         
-        # Draw lowest risks first so severe areas stay layered on top
+        # Sort so severe hazard shapes sit stacked on top of lower threats
         RISK_ORDER = {"TSTM": 1, "MRGL": 2, "SLGT": 3, "ENH": 4, "MDT": 5, "HIGH": 6}
-        features_sorted = sorted(features, key=lambda f: RISK_ORDER.get(f["properties"].get("LABEL2", ""), 0))
+        features_sorted = sorted(features, key=lambda f: RISK_ORDER.get(get_risk_code(f), 0))
         
         SPC_COLORS = {
-            "TSTM": "#244a34",  # Adjusted to a deep forest green for smooth land transition
-            "MRGL": "#55aa55",  # Medium grass green
-            "SLGT": "#ffe066",  # Bright warm yellow
-            "ENH":  "#ff9933",  # Vibrant orange
-            "MDT":  "#cc1111",  # Pure red
-            "HIGH": "#e500e5"   # High magenta
+            "TSTM": "#244a34", "MRGL": "#55aa55", "SLGT": "#ffe066",
+            "ENH":  "#ff9933", "MDT":  "#cc1111", "HIGH": "#e500e5"
         }
         
-        for f in sorted(features_sorted, key=lambda x: RISK_ORDER.get(x["properties"].get("LABEL2", ""), 0)):
-            # Normalize target keys securely to identify MRGL and TSTM risk values
-            label = f["properties"].get("LABEL", "").strip().upper()
-            if not label:
-                label = f["properties"].get("LABEL2", "").strip().upper()
-                
-            RISK_MAP = {
-                "TSTM": "TSTM", "GENERAL THUNDERSTORMS RISK": "TSTM", "GENERAL THUNDERSTORMS": "TSTM",
-                "MRGL": "MRGL", "MARGINAL RISK": "MRGL", "MARGINAL": "MRGL",
-                "SLGT": "SLGT", "SLIGHT RISK": "SLGT", "SLIGHT": "SLGT",
-                "ENH": "ENH", "ENHANCED RISK": "ENH", "ENHANCED": "ENH",
-                "MDT": "MDT", "MODERATE RISK": "MDT", "MODERATE": "MDT",
-                "HIGH": "HIGH", "HIGH RISK": "HIGH"
-            }
-            risk_code = RISK_MAP.get(label, "")
+        for f in features_sorted:
+            risk_code = get_risk_code(f)
             if not risk_code:
                 continue
-                
             fill_color = SPC_COLORS.get(risk_code, "#ffffff")
             
             try:
                 geom = shape(f["geometry"])
-                # Removed outlines completely (edgecolor='none', linewidth=0, and Z-Order 2.0 to sit on top of land)
+                # Render fill shape completely outline-free
                 ax_map.add_geometries([geom], crs=ccrs.PlateCarree(),
                                       facecolor=fill_color, edgecolor='none',
                                       linewidth=0, alpha=0.6, zorder=2.0)
             except Exception as e:
-                print(f"Error rendering SPC shape: {e}")
+                print(f"Error rendering geometry shape: {e}")
     else:
-        # Gridded temperature contour mapping (Safely grouped to avoid IndexError)
+        # Gridded temperature contour mapping
         vmin, vmax = product.vmin, product.vmax
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         color_range = float(vmax - vmin)
@@ -138,7 +153,6 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         counties_shp = shapereader.natural_earth(resolution='10m', category='cultural', name='admin_2_counties')
         counties_reader = shapereader.Reader(counties_shp)
         counties_feature = cfeature.ShapelyFeature(counties_reader.geometries(), ccrs.PlateCarree())
-        # Drawn at Z-Order 3.0 on top of the weather shapes and base land mass
         ax_map.add_feature(counties_feature, facecolor='none', edgecolor='white', linewidth=0.45, alpha=0.35, zorder=3.0)
     except:
         pass
@@ -158,11 +172,9 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                 map_box = box(region.extent[0]-3, region.extent[2]-3, region.extent[1]+3, region.extent[3]+3)
                 state_negative_mask = map_box.difference(state_geom)
                 
-                # Surround states blacked out at Z-Order 3.5 (underneath border layers)
+                # Render state negative boundaries under top outline borders
                 ax_map.add_geometries([state_negative_mask], crs=ccrs.PlateCarree(), facecolor='#151c24', edgecolor='none', zorder=3.5)
-                # State base fill at Z-Order 1.5
                 ax_map.add_geometries([state_geom], crs=ccrs.PlateCarree(), facecolor=state_facecolor, edgecolor='none', zorder=1.5)
-                # Thick focus border outline at Z-Order 5.0
                 ax_map.add_geometries([state_geom], crs=ccrs.PlateCarree(), facecolor='none', edgecolor='white', linewidth=1.5, zorder=5)
         except Exception as ex:
             print(f"Skipping geometry mask operations: {ex}")
@@ -181,7 +193,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         except Exception as ex:
             print(f"Skipping Texas highlight border: {ex}")
             
-    # Draw background state, border, and coastline lines on top of the mask (Z-Order 4.2)
+    # Render outlines above mask boundary layers
     ax_map.add_feature(cfeature.COASTLINE.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4.2)
     ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4.2)
     ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4.2)
@@ -198,16 +210,14 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     shadow_offset_lon = lon_span * 0.0016
     shadow_offset_lat = -lat_span * 0.0028
     path_effects = [withStroke(linewidth=3, foreground='#151c24')]
-    val_suffix = product.val_suffix if not is_spc else ""
+    val_suffix = product.val_suffix if not is_vector else ""
     
     for city, (lat, lon) in region.cities.items():
-        # Always render the city name badge to keep coordinates oriented
         ax_map.text(lon, lat + city_offset, city, color='white', fontsize=22, fontweight='bold',
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
-        # Display the numerical values dynamically on top (only for gridded models, skipped on convective outlooks)
-        if not is_spc:
+        if not is_vector:
             val = map_label_values.get(city)
             if val is not None and val != "":
                 ax_map.text(lon + shadow_offset_lon, lat + temp_offset + shadow_offset_lat, f"{val}{val_suffix}", color='black', alpha=0.5,
@@ -286,23 +296,32 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     # ----------------------------------------------------
     # TOP-RIGHT LEGEND MODULE (CONTINUOUS VS CATEGORICAL)
     # ----------------------------------------------------
-    if is_spc:
-        # Categorical risk blocks legend for SPC Outlook layers
+    if is_vector:
+        # Dynamic categorical block legend based on active outlook specifications
         ax_legend = fig.add_axes([0.60, 0.88, 0.36, 0.035])
         ax_legend.axis('off')
-        ax_legend.set_xlim(0, 6)
+        
+        if is_wpc:
+            # WPC excessive rainfall outlook legends
+            risks = [("MRGL", "#55aa55"), ("SLGT", "#ffe066"), ("MDT", "#cc1111"), ("HIGH", "#e500e5")]
+        elif "Day 4" in map_type or "Day 5" in map_type or "Day 6" in map_type or "Day 7" in map_type or "Day 8" in map_type:
+            # SPC Days 4-8 probabilistic severity risk scales
+            risks = [("15% (SLGT)", "#ffe066"), ("30% (ENH)", "#ff9933")]
+        else:
+            # Standard 6-tier SPC categorical convective legends
+            risks = [
+                ("TSTM", "#244a34"), ("MRGL", "#55aa55"), ("SLGT", "#ffe066"),
+                ("ENH", "#ff9933"), ("MDT", "#cc1111"), ("HIGH", "#e500e5")
+            ]
+            
+        num_blocks = len(risks)
+        ax_legend.set_xlim(0, num_blocks)
         ax_legend.set_ylim(0, 1)
         
-        SPC_COLORS = {
-            "TSTM": "#244a34", "MRGL": "#55aa55", "SLGT": "#ffe066",
-            "ENH":  "#ff9933", "MDT":  "#cc1111", "HIGH": "#e500e5"
-        }
-        risks = ["TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"]
-        for i, r in enumerate(risks):
-            color = SPC_COLORS[r]
+        for i, (label_text, color) in enumerate(risks):
             rect = plt.Rectangle((i, 0.4), 0.9, 0.4, facecolor=color, edgecolor='white', linewidth=1, transform=ax_legend.transData)
             ax_legend.add_patch(rect)
-            ax_legend.text(i + 0.45, 0.15, r, color='white', fontsize=12, fontweight='bold', family=font_family,
+            ax_legend.text(i + 0.45, 0.15, label_text, color='white', fontsize=11, fontweight='bold', family=font_family,
                            ha='center', va='center', path_effects=path_effects)
     else:
         # Continuous numeric colorbar scale for model contours
