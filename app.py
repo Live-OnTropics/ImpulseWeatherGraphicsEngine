@@ -19,12 +19,13 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
         is_spc = "Convective Outlook" in map_type
         is_wpc = "Excessive Rainfall" in map_type
         is_vector = is_spc or is_wpc
+        is_precip = "Precipitation" in map_type
         
         region_class = REGIONS.get(selected_region_name, TexasRegion)
         region = region_class()
 
         if is_vector:
-            # 1. Instantiate correct Product class
+            # 1. Instantiate vector products
             if is_spc:
                 from src.products.convective_outlook import ConvectiveOutlookProduct
                 day_num = int(forecast_setting)
@@ -37,7 +38,7 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
             # 2. Fetch GeoJSON features
             features = product.fetch_geojson()
             
-            # 3. Assess risk boundaries for every city point
+            # 3. Assess spatial risk intersections
             from shapely.geometry import Point, shape
             map_label_values = {city: "" for city in region.cities.keys()}
             
@@ -53,7 +54,6 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
                 except Exception as e:
                     print(f"Error checking coordinates for {city}: {e}")
             
-            # Package metadata for rendering canvas
             import cartopy.crs as ccrs
             data_proj = ccrs.PlateCarree()
             model_name = "NOAA/SPC" if is_spc else "NOAA/WPC"
@@ -61,8 +61,13 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
             grid_lon, grid_lat = None, None
             grid_values = features
         else:
-            # Standard temperature models extraction
-            product = TemperatureProduct()
+            # Gridded products loading (Temperature vs Precipitation)
+            if is_precip:
+                from src.products.precipitation import PrecipitationProduct
+                product = PrecipitationProduct()
+            else:
+                product = TemperatureProduct()
+                
             grid_lon, grid_lat, grid_values, map_label_values, model_name, data_proj, run_cycle_str = get_model_data(
                 target_model, map_type, forecast_setting, product, region
             )
@@ -109,13 +114,13 @@ if __name__ == '__main__':
             # Show options for temperature models
             selected_model = st.sidebar.selectbox(
                 "Select Numerical Model:",
-                ["NDFD", "HRRR (2.5km)", "NAM (12km)", "GFS"],
-                index=3
+                ["NDFD", "HRRR (2.5km)", "NAM (12km)", "NAM (3km Nest)", "RAP (13km)", "GFS"],
+                index=5
             )
             
             selected_map_type = st.sidebar.selectbox(
                 "Select Map Type:",
-                ["Forecast High Temperatures", "Forecast Low Temperatures"]
+                ["Forecast High Temperatures", "Forecast Low Temperatures", "Total Precipitation"]
             )
             
             selected_ep = None
@@ -129,19 +134,45 @@ if __name__ == '__main__':
             if selected_ep is None:
                 selected_ep = MODEL_ENDPOINTS[0]
                 
-            max_days = selected_ep.get("max_days", 5)
-            
-            day_options = []
-            day_mapping = {}
-            for i in range(max_days):
-                day_date = today_date + datetime.timedelta(days=i)
-                day_label = day_date.strftime("%A, %b %d")
-                day_options.append(day_label)
-                day_mapping[day_label] = i
+            if selected_map_type == "Total Precipitation":
+                # Dynamic forecast hour interval menu selection
+                if "hrrr" in selected_model.lower():
+                    max_hours, step = 36, 1
+                elif "rap" in selected_model.lower():
+                    max_hours, step = 21, 1
+                elif "3km" in selected_model.lower():
+                    max_hours, step = 36, 1
+                elif "12km" in selected_model.lower():
+                    max_hours, step = 84, 3
+                elif "gfs" in selected_model.lower():
+                    max_hours, step = 120, 3
+                else:  # NDFD
+                    max_hours, step = 72, 6
                 
-            selected_day_label = st.sidebar.selectbox("Select Forecast Day:", day_options)
-            forecast_setting = day_mapping[selected_day_label]
-            forecast_setting_str = (today_date + datetime.timedelta(days=forecast_setting)).strftime("%A").upper()
+                time_options = []
+                time_mapping = {}
+                for h in range(step, max_hours + 1, step):
+                    valid_time = datetime.datetime.now(local_tz) + datetime.timedelta(hours=h)
+                    label = valid_time.strftime("%A, %b %d @ %I:%M %p") + f" (+{h}h)"
+                    time_options.append(label)
+                    time_mapping[label] = h
+                    
+                selected_time_label = st.sidebar.selectbox("Select End Timepoint:", time_options)
+                forecast_setting = time_mapping[selected_time_label]
+                forecast_setting_str = f"{forecast_setting}H ACCUMULATED"
+            else:
+                max_days = selected_ep.get("max_days", 5)
+                day_options = []
+                day_mapping = {}
+                for i in range(max_days):
+                    day_date = today_date + datetime.timedelta(days=i)
+                    day_label = day_date.strftime("%A, %b %d")
+                    day_options.append(day_label)
+                    day_mapping[day_label] = i
+                    
+                selected_day_label = st.sidebar.selectbox("Select Forecast Day:", day_options)
+                forecast_setting = day_mapping[selected_day_label]
+                forecast_setting_str = (today_date + datetime.timedelta(days=forecast_setting)).strftime("%A").upper()
         elif selected_category == "SPC Convective Outlooks":
             # Show convective parameters for Days 1 to 8 (Bypasses model select entirely)
             selected_map_type = st.sidebar.selectbox(
