@@ -86,10 +86,7 @@ def get_model_data(target_model, map_type, forecast_setting):
         try:
             ds = xr.open_dataset(url)
             
-            # 1. Parse CF metadata immediately on the newly opened dataset
-            ds = ds.metpy.parse_cf()
-            
-            # 2. Discover temperature/precipitation variable robustly
+            # 1. Discover temperature/precipitation variable robustly
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
             temp_candidates = [
@@ -117,24 +114,23 @@ def get_model_data(target_model, map_type, forecast_setting):
                         break
                         
             if temp_var is None:
-                raise ValueError("Variable is currently missing on the active server instance.")
+                raise ValueError(f"No matching temperature variables found in the {name} schema.")
 
-            # 3. Isolate the latest single model run cycle (reftime) to prevent summing overlapping forecasts
-            reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
+            # 2. Parse CF metadata on the SPECIFIC data variable only (highly stable and thread-safe!)
+            ds_var = ds[temp_var].metpy.parse_cf()
+
+            # 3. Handle multidimensional time dimensions (e.g. reftime)
+            reftime_dims = [d for d in ds_var.dims if 'reftime' in d.lower()]
             if reftime_dims:
-                # Select only the most recent model run cycle
-                ds_var = ds[temp_var].isel(**{reftime_dims[0]: -1})
-            else:
-                ds_var = ds[temp_var]
+                ds_var = ds_var.isel(**{reftime_dims[0]: -1})
 
-            # 4. Classify grid type based solely on active dimensions (No coordinate scanning needed)
+            # 4. Classify grid type based solely on active dimensions of the variable
             temp_dims = ds_var.dims
             is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
-            # Crop spatial region
+            # 5. Crop spatial region
             if is_projected:
                 # Projected Grid (NAM, HRRR, NDFD)
-                # Resolve dimensions with flexible staggered indices (e.g. x_0, y_0)
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
                 y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
                 
@@ -146,7 +142,6 @@ def get_model_data(target_model, map_type, forecast_setting):
                 x_slice = slice(min(transformed_corners[:, 0]), max(transformed_corners[:, 0]))
                 y_slice = slice(min(transformed_corners[:, 1]), max(transformed_corners[:, 1]))
                 
-                # Slice variables using coordinate boundaries
                 subset = ds_var.sel(**{x_dim: x_slice, y_dim: y_slice})
                 grid_lon = subset[x_dim].values
                 grid_lat = subset[y_dim].values
@@ -182,13 +177,24 @@ def get_model_data(target_model, map_type, forecast_setting):
                 grid_lat = lat_arr[y_slice]
                 data_proj = ccrs.PlateCarree()
                 
-            # Locate time index coordinates
+            # 6. Locate time index coordinates
             time_dim = [d for d in subset.dims if 'time' in d][0]
-            time_vals = subset[time_dim].values
-            hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
+            
+            # 7. Deduplicate time dimension (Crucial to prevent summing overlapping duplicate forecasts!)
+            try:
+                time_coord = subset[time_dim]
+                if len(time_coord) != len(np.unique(time_coord)):
+                    _, unique_indices = np.unique(time_coord.values[::-1], return_index=True)
+                    unique_indices = len(time_coord) - 1 - unique_indices
+                    unique_indices = sorted(unique_indices)
+                    subset = subset.isel(**{time_dim: unique_indices})
+            except Exception as e:
+                print(f"Time deduplication skipped: {e}")
             
             # Squeeze out singleton dimensions before conversions
             subset = subset.squeeze()
+            time_vals = subset[time_dim].values
+            hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
             
             # High-Precision Unit Conversions (Performed on raw float arrays prior to temporal calculations)
             units = ds[temp_var].attrs.get('units', '').lower()
