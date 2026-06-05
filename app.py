@@ -9,7 +9,7 @@ from src.config.models import MODEL_ENDPOINTS
 from src.config.regions import REGIONS, TexasRegion
 from src.products.temperature import TemperatureProduct
 from src.core.data_fetcher import get_model_data
-from src.core.map_renderer import render_map
+from src.core.map_renderer import render_map, get_risk_code
 
 import streamlit.runtime as st_runtime
 is_streamlit = st_runtime.exists()
@@ -17,40 +17,32 @@ is_streamlit = st_runtime.exists()
 def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_str, selected_region_name):
     try:
         is_spc = "Convective Outlook" in map_type
+        is_wpc = "Excessive Rainfall" in map_type
+        is_vector = is_spc or is_wpc
         
         region_class = REGIONS.get(selected_region_name, TexasRegion)
         region = region_class()
 
-        if is_spc:
-            # 1. Instantiate the SPC outlook product configuration
-            from src.products.convective_outlook import ConvectiveOutlookProduct
-            day_num = int(forecast_setting)
-            product = ConvectiveOutlookProduct(day=day_num)
+        if is_vector:
+            # 1. Instantiate correct Product class
+            if is_spc:
+                from src.products.convective_outlook import ConvectiveOutlookProduct
+                day_num = int(forecast_setting)
+                product = ConvectiveOutlookProduct(day=day_num)
+            else:
+                from src.products.excessive_rainfall import ExcessiveRainfallProduct
+                day_num = int(forecast_setting)
+                product = ExcessiveRainfallProduct(day=day_num)
             
-            # 2. Programmatically fetch vector polygons from SPC
+            # 2. Fetch GeoJSON features
             features = product.fetch_geojson()
             
-            # 3. Assess severe risk boundaries for every coordinate point
+            # 3. Assess risk boundaries for every city point
             from shapely.geometry import Point, shape
             map_label_values = {city: "" for city in region.cities.keys()}
             
-            RISK_ORDER = {"TSTM": 1, "MRGL": 2, "SLGT": 3, "ENH": 4, "MDT": 5, "HIGH": 6}
-            features_sorted = sorted(features, key=lambda f: RISK_ORDER.get(f["properties"].get("LABEL2", ""), 0))
-            
-            for f in features_sorted:
-                label = f["properties"].get("LABEL", "").strip().upper()
-                if not label:
-                    label = f["properties"].get("LABEL2", "").strip().upper()
-                
-                RISK_MAP = {
-                    "TSTM": "TSTM", "GENERAL THUNDERSTORMS RISK": "TSTM", "GENERAL THUNDERSTORMS": "TSTM",
-                    "MRGL": "MRGL", "MARGINAL RISK": "MRGL", "MARGINAL": "MRGL",
-                    "SLGT": "SLGT", "SLIGHT RISK": "SLGT", "SLIGHT": "SLGT",
-                    "ENH": "ENH", "ENHANCED RISK": "ENH", "ENHANCED": "ENH",
-                    "MDT": "MDT", "MODERATE RISK": "MDT", "MODERATE": "MDT",
-                    "HIGH": "HIGH", "HIGH RISK": "HIGH"
-                }
-                risk_code = RISK_MAP.get(label, "")
+            for f in features:
+                risk_code = get_risk_code(f)
                 if not risk_code:
                     continue
                 try:
@@ -64,7 +56,7 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
             # Package metadata for rendering canvas
             import cartopy.crs as ccrs
             data_proj = ccrs.PlateCarree()
-            model_name = "NOAA/SPC"
+            model_name = "NOAA/SPC" if is_spc else "NOAA/WPC"
             run_cycle_str = ""
             grid_lon, grid_lat = None, None
             grid_values = features
@@ -100,7 +92,7 @@ if __name__ == '__main__':
         # 1. High-level category switch (hides/shows model toggles)
         selected_category = st.sidebar.selectbox(
             "Select Map Category:",
-            ["Numerical Forecast Models", "SPC Convective Outlooks"]
+            ["Numerical Forecast Models", "SPC Convective Outlooks", "WPC Excessive Rainfall Outlooks"]
         )
         
         # 2. Map Region Selection
@@ -150,13 +142,30 @@ if __name__ == '__main__':
             selected_day_label = st.sidebar.selectbox("Select Forecast Day:", day_options)
             forecast_setting = day_mapping[selected_day_label]
             forecast_setting_str = (today_date + datetime.timedelta(days=forecast_setting)).strftime("%A").upper()
-        else:
-            # Show convective outlook parameters (Bypasses model select entirely)
+        elif selected_category == "SPC Convective Outlooks":
+            # Show convective parameters for Days 1 to 8 (Bypasses model select entirely)
             selected_map_type = st.sidebar.selectbox(
                 "Select Outlook Day:",
-                ["Day 1 Convective Outlook", "Day 2 Convective Outlook", "Day 3 Convective Outlook"]
+                [
+                    "Day 1 Convective Outlook", "Day 2 Convective Outlook", "Day 3 Convective Outlook",
+                    "Day 4 Convective Outlook", "Day 5 Convective Outlook", "Day 6 Convective Outlook",
+                    "Day 7 Convective Outlook", "Day 8 Convective Outlook"
+                ]
             )
             selected_model = "SPC"
+            forecast_setting = int(selected_map_type.split()[1])
+            outlook_date = today_date + datetime.timedelta(days=forecast_setting - 1)
+            forecast_setting_str = outlook_date.strftime("%A").upper()
+        else:
+            # Show excessive rainfall parameters for Days 1 to 5 (Bypasses model select entirely)
+            selected_map_type = st.sidebar.selectbox(
+                "Select Outlook Day:",
+                [
+                    "Day 1 Excessive Rainfall Outlook", "Day 2 Excessive Rainfall Outlook", "Day 3 Excessive Rainfall Outlook",
+                    "Day 4 Excessive Rainfall Outlook", "Day 5 Excessive Rainfall Outlook"
+                ]
+            )
+            selected_model = "WPC"
             forecast_setting = int(selected_map_type.split()[1])
             outlook_date = today_date + datetime.timedelta(days=forecast_setting - 1)
             forecast_setting_str = outlook_date.strftime("%A").upper()
