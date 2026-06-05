@@ -38,14 +38,26 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
             features_sorted = sorted(features, key=lambda f: RISK_ORDER.get(f["properties"].get("LABEL2", ""), 0))
             
             for f in features_sorted:
-                label2 = f["properties"].get("LABEL2", "")
-                if not label2:
+                label = f["properties"].get("LABEL", "").strip().upper()
+                if not label:
+                    label = f["properties"].get("LABEL2", "").strip().upper()
+                
+                RISK_MAP = {
+                    "TSTM": "TSTM", "GENERAL THUNDERSTORMS RISK": "TSTM", "GENERAL THUNDERSTORMS": "TSTM",
+                    "MRGL": "MRGL", "MARGINAL RISK": "MRGL", "MARGINAL": "MRGL",
+                    "SLGT": "SLGT", "SLIGHT RISK": "SLGT", "SLIGHT": "SLGT",
+                    "ENH": "ENH", "ENHANCED RISK": "ENH", "ENHANCED": "ENH",
+                    "MDT": "MDT", "MODERATE RISK": "MDT", "MODERATE": "MDT",
+                    "HIGH": "HIGH", "HIGH RISK": "HIGH"
+                }
+                risk_code = RISK_MAP.get(label, "")
+                if not risk_code:
                     continue
                 try:
                     geom = shape(f["geometry"])
                     for city, (lat, lon) in region.cities.items():
                         if geom.contains(Point(lon, lat)):
-                            map_label_values[city] = label2
+                            map_label_values[city] = risk_code
                 except Exception as e:
                     print(f"Error checking coordinates for {city}: {e}")
             
