@@ -12,6 +12,14 @@ import cartopy.feature as cfeature
 from cartopy.io import shapereader
 from scipy.interpolate import griddata
 
+# Detect if we are running inside a Streamlit Web environment
+try:
+    import streamlit as st
+    import streamlit.runtime as st_runtime
+    is_streamlit = st_runtime.exists()
+except ImportError:
+    is_streamlit = False
+
 # ==========================================
 # 1. Robust Font Setup (Space Grotesk)
 # ==========================================
@@ -115,7 +123,7 @@ def find_nearest_projected_value(x_coord, y_coord, grid_data, target_lon, target
     return float(np.atleast_1d(val).flat[0])
 
 
-def get_model_data():
+def get_model_data(target_model=None):
     """
     Attempts to fetch live forecasts from selected THREDDS datasets.
     Falls back to a meteorological grid model with smooth residual adjustments to
@@ -153,6 +161,10 @@ def get_model_data():
         }
     ]
     
+    # If a specific model is forced from Streamlit sidebar, prioritize it first
+    if target_model:
+        endpoints = [ep for ep in endpoints if target_model in ep["name"]] + [ep for ep in endpoints if target_model not in ep["name"]]
+        
     has_xr = False
     try:
         import xarray as xr
@@ -330,9 +342,9 @@ def get_model_data():
 # ==========================================
 # 4. Map Generation & Styling
 # ==========================================
-def generate_map():
+def generate_map(target_model=None, uploaded_logo_file=None):
     font_family = setup_fonts()
-    grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj = get_model_data()
+    grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj = get_model_data(target_model)
     
     # 1920x1080 canvas
     fig = plt.figure(figsize=(19.2, 10.8), facecolor='#0d1117')
@@ -409,10 +421,8 @@ def generate_map():
         ax_map.add_geometries([tx_geom], crs=ccrs.PlateCarree(), 
                                facecolor='none', edgecolor='white', linewidth=1.5, zorder=5)
         
-    ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', 
-                       linewidth=0.5, alpha=0.2, zorder=4)
-    ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', 
-                       linewidth=0.5, alpha=0.2, zorder=4)
+    ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
+    ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
     
     # ------------------------------------------
     # MAP STATION LABELS RENDERING
@@ -445,16 +455,24 @@ def generate_map():
     # ------------------------------------------
     # CLEAN FLOATING HUD HEADER (TOP LEFT)
     # ------------------------------------------
-    ax_header_card = fig.add_axes([0.095, 0.82, 0.45, 0.14])
+    ax_header_card = fig.add_axes([0.105, 0.82, 0.45, 0.14])
     ax_header_card.axis('off')
     
-    # Reconstructed Blue Circle Badge with White Outline
+    # Reconstructed Blue Circle Badge with White Outline (No Stretching)
     logo_drawn = False
-    if os.path.exists("ImpulseWXLogo.png"):
+    
+    # Check for direct Streamlit web upload first, then fallback to local path
+    active_logo_source = None
+    if uploaded_logo_file is not None:
+        active_logo_source = uploaded_logo_file
+    elif os.path.exists("ImpulseWXLogo.png"):
+        active_logo_source = "ImpulseWXLogo.png"
+        
+    if active_logo_source is not None:
         try:
             from PIL import Image
             from matplotlib.patches import Circle
-            img = Image.open("ImpulseWXLogo.png")
+            img = Image.open(active_logo_source)
             width, height = img.size
             # Reduced horizontal crop to preserve badge dimensions
             left = int(width * 0.10)
@@ -463,7 +481,7 @@ def generate_map():
             bottom = int(height * 0.80)
             cropped_img = img.crop((left, top, right, bottom))
             
-            # Sub-axes for the circular logo badge (exact square coordinates, made 13% smaller)
+            # Sub-axes for the circular logo badge (perfect 1:1 aspect square coordinates)
             ax_logo = fig.add_axes([0.02, 0.825, 0.065, 0.11555], facecolor='none')
             ax_logo.axis('off')
             ax_logo.set_aspect('equal')
@@ -493,7 +511,7 @@ def generate_map():
             im.set_clip_path(clip_circle)
             logo_drawn = True
         except Exception as e:
-            print(f"Could not load or crop ImpulseWXLogo.png: {e}")
+            print(f"Could not load or crop logo: {e}")
             
     title_x = 0.01
     capsule_x = 0.01
@@ -531,8 +549,46 @@ def generate_map():
 
     output_filename = 'texas_forecast_highs.png'
     plt.savefig(output_filename, dpi=100)
-    print(f"Map successfully saved to {output_filename}")
     plt.close()
 
+# ==========================================
+# 5. Execution Block (Unified Dual Mode)
+# ==========================================
 if __name__ == '__main__':
-    generate_map()
+    if is_streamlit:
+        st.title("Impulse Weather Map Dashboard")
+        st.write("Configure your options on the sidebar and click **Generate Map**.")
+        
+        # 1. Model Selector on Streamlit Sidebar
+        selected_model = st.sidebar.selectbox(
+            "Select Numerical Model:",
+            ["NDFD", "HRRR (2.5km)", "NAM (12km)", "GFS (0.25deg)"],
+            index=3  # Default to GFS
+        )
+        
+        # 2. Interactive Logo Uploader
+        uploaded_logo = st.sidebar.file_uploader("Upload Brand Logo (Optional):", type=["png"])
+        
+        if st.sidebar.button("Generate Map", type="primary"):
+            with st.spinner("Connecting to servers and generating map..."):
+                try:
+                    # Run generation
+                    generate_map(target_model=selected_model, uploaded_logo_file=uploaded_logo)
+                    
+                    st.success("Map generated successfully!")
+                    st.image("texas_forecast_highs.png", use_container_width=True)
+                    
+                    # Provide direct download link
+                    with open("texas_forecast_highs.png", "rb") as file:
+                        st.download_button(
+                            label="Download High-Resolution Map",
+                            data=file,
+                            file_name="texas_forecast_highs.png",
+                            mime="image/png"
+                        )
+                except Exception as e:
+                    st.error(f"Failed to generate map: {e}")
+    else:
+        # Standard CLI local execution mode
+        generate_map()
+        print("Map successfully saved to texas_forecast_highs.png")
