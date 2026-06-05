@@ -103,7 +103,91 @@ def get_model_data(target_model, map_type, forecast_setting):
                         continue
                     if 'temperature' in v_lower or 'temp' in v_lower:
                         temp_var = v
-                        break                sample_val = float(np.atleast_1d(subset_day.values).flat[0])
+                        break
+                        
+            if temp_var is None:
+                raise ValueError("Variable is currently missing on the active server instance.")
+
+            # Identify coordinate variables
+            lat_var, lon_var = None, None
+            for v in ds.variables:
+                v_lower = v.lower()
+                if v_lower in ['latitude', 'lat']:
+                    lat_var = v
+                elif v_lower in ['longitude', 'lon']:
+                    lon_var = v
+                    
+            if lat_var is None or lon_var is None:
+                raise ValueError("Coordinates not found in the dataset schema.")
+                
+            lat_arr = ds[lat_var].values
+            lon_arr = ds[lon_var].values
+            if lon_arr.max() > 180:
+                if lon_arr.ndim == 1:
+                    lon_arr = lon_arr - 360
+                else:
+                    lon_arr = np.where(lon_arr > 180, lon_arr - 360, lon_arr)
+                    
+            # Set projection flag based on coord dimensions (1D regular vs 2D projected)
+            is_projected = ds[lat_var].ndim > 1
+            temp_dims = ds[temp_var].dims
+
+            # Crop spatial region
+            if not is_projected:
+                # Regular Latitude/Longitude Grid (GFS)
+                y_dim = ds[lat_var].dims[0]
+                x_dim = ds[lon_var].dims[0]
+                
+                lat_indices = np.where((lat_arr >= 24.0) & (lat_arr <= 38.0))[0]
+                lon_indices = np.where((lon_arr >= -112.44) & (lon_arr <= -87.56))[0]
+                
+                y_slice = slice(min(lat_indices), max(lat_indices) + 1)
+                x_slice = slice(min(lon_indices), max(lon_indices) + 1)
+                
+                subset = ds[temp_var].isel(**{y_dim: y_slice, x_dim: x_slice})
+                grid_lon = lon_arr[x_slice]
+                grid_lat = lat_arr[y_slice]
+                data_proj = ccrs.PlateCarree()
+            else:
+                # Projected Grid (NAM, HRRR, NDFD)
+                # Resolve dimensions with flexible staggered indices (e.g. x_0, y_0)
+                x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
+                y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
+                
+                ds = ds.metpy.parse_cf()
+                data_proj = ds[temp_var].metpy.cartopy_crs
+                
+                transformed_corners = data_proj.transform_points(
+                    ccrs.PlateCarree(), np.array([-112.44, -87.56]), np.array([24.0, 38.0])
+                )
+                x_slice = slice(min(transformed_corners[:, 0]), max(transformed_corners[:, 0]))
+                y_slice = slice(min(transformed_corners[:, 1]), max(transformed_corners[:, 1]))
+                
+                subset = ds[temp_var].sel(**{x_dim: x_slice, y_dim: y_slice})
+                grid_lon = subset[x_dim].values
+                grid_lat = subset[y_dim].values
+                
+            # Locate time index coordinates
+            time_dim = [d for d in subset.dims if 'time' in d][0]
+            time_vals = subset[time_dim].values
+            hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
+            
+            if param_class == "temp":
+                # Isolate the exact 24-hour diurnal slice corresponding to selected day
+                start_hour = forecast_setting * 24
+                end_hour = (forecast_setting + 1) * 24
+                
+                time_indices = np.where((hours_since_start >= start_hour) & (hours_since_start <= end_hour))[0]
+                if len(time_indices) == 0:
+                    time_indices = np.where(hours_since_start >= start_hour)[0]
+                if len(time_indices) == 0:
+                    time_indices = [0]
+                    
+                subset_day = subset.isel(**{time_dim: time_indices})
+                
+                # Convert Kelvin/Celsius to Fahrenheit before taking statistics to maintain grid precision
+                units = ds[temp_var].attrs.get('units', '').lower()
+                sample_val = float(np.atleast_1d(subset_day.values).flat[0])
                 if 'k' in units or sample_val > 150:
                     temp_f = (subset_day - 273.15) * 1.8 + 32
                 elif 'c' in units or sample_val < 50:
@@ -151,6 +235,6 @@ def get_model_data(target_model, map_type, forecast_setting):
             print("   Trying next dataset...")
             
     raise ConnectionError(
-        "NOAA/NWS forecast servers are currently undergoing index updates and are unreachable. "
+        "Live NOAA/NWS forecast servers are currently undergoing index updates and are unreachable. "
         "Please try again in a few minutes."
     )
