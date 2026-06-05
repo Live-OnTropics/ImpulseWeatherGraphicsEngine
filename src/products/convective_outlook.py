@@ -53,8 +53,12 @@ class ConvectiveOutlookProduct(BaseProduct):
         return subset_day
 
     def fetch_geojson(self):
-        """Queries SPC Day 1-3 Categorical GeoJSON layers directly from NOAA servers."""
-        url = f"https://www.spc.noaa.gov/products/outlook/day{self.day}otlk_cat.lyr.geojson"
+        """Queries SPC Day 1-8 outlooks programmatically."""
+        if self.day >= 4:
+            url = f"https://www.spc.noaa.gov/products/exper/day4-8/day{self.day}prob.lyr.geojson"
+        else:
+            url = f"https://www.spc.noaa.gov/products/outlook/day{self.day}otlk_cat.lyr.geojson"
+            
         headers = {'User-Agent': 'Mozilla/5.0'}
         req = urllib.request.Request(url, headers=headers)
         try:
