@@ -39,30 +39,34 @@ TEMP_COLOR_POINTS = [
 ]
 TEMP_COLORBAR_TICKS = [-40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
 
-# Priority sequence list of Unidata THREDDS datasets
+# Priority sequence list of Unidata THREDDS datasets (incorporating model forecast depth limits)
 MODEL_ENDPOINTS = [
     {
         "name": "NDFD",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/NDFD/NWS/CONUS/CONDUIT/Best",
         "highs_candidates": ["maximum_temperature_height_above_ground_Mixed_intervals_Maximum", "maximum_temperature_height_above_ground"],
-        "lows_candidates": ["minimum_temperature_height_above_ground_Mixed_intervals_Minimum", "minimum_temperature_height_above_ground"]
+        "lows_candidates": ["minimum_temperature_height_above_ground_Mixed_intervals_Minimum", "minimum_temperature_height_above_ground"],
+        "max_days": 7
     },
     {
         "name": "HRRR (2.5km)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/HRRR/CONUS_2p5km/Best",
         "highs_candidates": ["temperature_height_above_ground"],
-        "lows_candidates": ["temperature_height_above_ground"]
+        "lows_candidates": ["temperature_height_above_ground"],
+        "max_days": 2  # Today and Tomorrow only
     },
     {
         "name": "NAM (12km)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/NAM/CONUS_12km/Best",
         "highs_candidates": ["temperature_height_above_ground"],
-        "lows_candidates": ["temperature_height_above_ground"]
+        "lows_candidates": ["temperature_height_above_ground"],
+        "max_days": 4
     },
     {
-        "name": "GFS (0.25deg)",
+        "name": "GFS",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/GFS/Global_0p25deg/Best",
         "highs_candidates": ["temperature_height_above_ground"],
-        "lows_candidates": ["temperature_height_above_ground"]
+        "lows_candidates": ["temperature_height_above_ground"],
+        "max_days": 16  # Full 16-day forecast depth
     }
 ]
