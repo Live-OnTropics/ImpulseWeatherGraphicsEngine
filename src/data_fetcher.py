@@ -23,36 +23,6 @@ def find_nearest_projected_value(x_coord, y_coord, grid_data, target_lon, target
     return float(np.atleast_1d(val).flat[0])
 
 
-def get_time_index(ds, time_dim, param_type, value):
-    """
-    Finds the exact index in the time dimension coordinate arrays.
-    For Temps: maps "Today", "Tomorrow", "Day 3" indices.
-    For Rain: maps target forecast accumulation hours (24h, 48h, 72h).
-    """
-    try:
-        time_vals = ds[time_dim].values
-        hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
-        
-        if param_type == "rain":
-            # For rain, we find the forecast hour that closely matches our target hour window (e.g., 24h)
-            idx = np.abs(hours_since_start - float(value)).argmin()
-            return int(idx)
-        else:
-            # For temperatures, NDFD publishes 12-hour maximums, so index maps cleanly
-            if "ndfd" in str(ds).lower():
-                return int(value)
-            # In GFS/NAM, max temperature isn't aggregated into daily intervals.
-            # We locate the maximum temperature point by scanning 24h chunks (index 8, 16, 24)
-            step = 8 if "gfs" in str(ds).lower() or "nam" in str(ds).lower() else 24
-            return int(value * step)
-    except:
-        # Static index fallback
-        if param_type == "rain":
-            mapping = {24: 8, 48: 16, 72: 24}
-            return mapping.get(value, 8)
-        return int(value)
-
-
 def get_model_data(target_model, map_type, forecast_setting):
     """
     Queries THREDDS. Dynamically detects variable, coordinate dimensions, and 
@@ -74,19 +44,14 @@ def get_model_data(target_model, map_type, forecast_setting):
         # Pull candidate names matching the selected parameters
         if map_type == "Forecast High Temperatures":
             candidates = ep["highs_candidates"]
-            param_class = "temp"
-        elif map_type == "Forecast Low Temperatures":
-            candidates = ep["lows_candidates"]
-            param_class = "temp"
         else:
-            candidates = ep["rain_candidates"]
-            param_class = "rain"
+            candidates = ep["lows_candidates"]
             
         print(f"Connecting to Unidata's {name}...")
         try:
             ds = xr.open_dataset(url)
             
-            # Discover temperature/precipitation variable robustly
+            # Discover temperature variable robustly
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
             temp_candidates = [
@@ -109,7 +74,7 @@ def get_model_data(target_model, map_type, forecast_setting):
                     v_lower = v.lower()
                     if any(c in v_lower for c in coordinate_names) and 'temp' not in v_lower:
                         continue
-                    if 'temperature' in v_lower or 'temp' in v_lower or 'precip' in v_lower:
+                    if 'temperature' in v_lower or 'temp' in v_lower:
                         temp_var = v
                         break
                         
@@ -196,64 +161,36 @@ def get_model_data(target_model, map_type, forecast_setting):
             time_vals = subset[time_dim].values
             hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
             
-            # High-Precision Unit Conversions (Performed on raw float arrays prior to temporal calculations)
+            # High-Precision Unit Conversions
             units = ds[temp_var].attrs.get('units', '').lower()
-            if param_class == "temp":
-                sample_val = float(np.atleast_1d(subset.values).flat[0])
-                if 'k' in units or sample_val > 150:
-                    subset_converted = (subset - 273.15) * 1.8 + 32
-                elif 'c' in units or sample_val < 50:
-                    subset_converted = subset * 1.8 + 32
-                else:
-                    subset_converted = subset
+            sample_val = float(np.atleast_1d(subset.values).flat[0])
+            if 'k' in units or sample_val > 150:
+                subset_converted = (subset - 273.15) * 1.8 + 32
+            elif 'c' in units or sample_val < 50:
+                subset_converted = subset * 1.8 + 32
             else:
-                # Convert precipitation millimeter outputs to standard inches
-                if 'mm' in units or 'grib_units_mm' in str(ds[temp_var]).lower():
-                    subset_converted = subset / 25.4
-                else:
-                    subset_converted = subset
+                subset_converted = subset
             
-            if param_class == "temp":
-                # Isolate the exact 24-hour diurnal slice corresponding to selected day
-                start_hour = forecast_setting * 24
-                end_hour = (forecast_setting + 1) * 24
+            # Isolate the exact 24-hour diurnal slice corresponding to selected day
+            start_hour = forecast_setting * 24
+            end_hour = (forecast_setting + 1) * 24
+            
+            time_indices = np.where((hours_since_start >= start_hour) & (hours_since_start <= end_hour))[0]
+            if len(time_indices) == 0:
+                time_indices = np.where(hours_since_start >= start_hour)[0]
+            if len(time_indices) == 0:
+                time_indices = [0]
                 
-                time_indices = np.where((hours_since_start >= start_hour) & (hours_since_start <= end_hour))[0]
-                if len(time_indices) == 0:
-                    time_indices = np.where(hours_since_start >= start_hour)[0]
-                if len(time_indices) == 0:
-                    time_indices = [0]
-                    
-                subset_day = subset_converted.isel(**{time_dim: time_indices})
-                
-                # Take maximum (Highs) or minimum (Lows) dynamically across the 24h window
-                is_high = "High" in map_type
-                if is_high:
-                    max_temp_grid = subset_day.max(dim=time_dim).squeeze().load()
-                else:
-                    max_temp_grid = subset_day.min(dim=time_dim).squeeze().load()
-                    
-                grid_temp = max_temp_grid.values
+            subset_day = subset_converted.isel(**{time_dim: time_indices})
+            
+            # Take maximum (Highs) or minimum (Lows) dynamically across the 24h window
+            is_high = "High" in map_type
+            if is_high:
+                max_temp_grid = subset_day.max(dim=time_dim).squeeze().load()
             else:
-                # For Rain: Find all time steps up to the target forecast accumulation window
-                time_indices = np.where(hours_since_start <= float(forecast_setting))[0]
-                if len(time_indices) == 0:
-                    time_indices = [0]
-                    
-                subset_rain = subset_converted.isel(**{time_dim: time_indices})
+                max_temp_grid = subset_day.min(dim=time_dim).squeeze().load()
                 
-                # We only sum if the variable contains "1_hour" or "3_hour" and is NOT a mixed aggregate
-                v_lower = temp_var.lower()
-                is_interval = ("1_hour" in v_lower or "3_hour" in v_lower) and ("mixed" not in v_lower and "accumulation" not in v_lower)
-                
-                if is_interval:
-                    # Sum all intervals up to target hour for true continuous accumulation
-                    subset_sliced = subset_rain.sum(dim=time_dim).squeeze().load()
-                else:
-                    # Already stored as bulk accumulated values from start (F00), slice last element
-                    subset_sliced = subset_rain.isel(**{time_dim: -1}).squeeze().load()
-                    
-                grid_temp = subset_sliced.values
+            grid_temp = max_temp_grid.values
             
             # Match grid array positions to stations
             for city, (lat, lon) in MAP_LABELS_REDUCED.items():
@@ -262,8 +199,7 @@ def get_model_data(target_model, map_type, forecast_setting):
                 else:
                     val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 
-                # Format rainfall outputs to decimals, and temperature to integers
-                map_label_temps[city] = round(val, 2) if param_class == "rain" else int(round(val))
+                map_label_temps[city] = int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
             return grid_lon, grid_lat, grid_temp, map_label_temps, name, data_proj
