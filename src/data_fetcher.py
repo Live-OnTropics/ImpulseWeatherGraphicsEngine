@@ -23,36 +23,6 @@ def find_nearest_projected_value(x_coord, y_coord, grid_data, target_lon, target
     return float(np.atleast_1d(val).flat[0])
 
 
-def get_time_index(ds, time_dim, param_type, value):
-    """
-    Finds the exact index in the time dimension coordinate arrays.
-    For Temps: maps "Today", "Tomorrow", "Day 3" indices.
-    For Rain: maps target forecast accumulation hours (24h, 48h, 72h).
-    """
-    try:
-        time_vals = ds[time_dim].values
-        hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
-        
-        if param_type == "rain":
-            # For rain, we find the forecast hour that closely matches our target hour window (e.g., 24h)
-            idx = np.abs(hours_since_start - float(value)).argmin()
-            return int(idx)
-        else:
-            # For temperatures, NDFD publishes 12-hour maximums, so index maps cleanly
-            if "ndfd" in str(ds).lower():
-                return int(value)
-            # In GFS/NAM, max temperature isn't aggregated into daily intervals.
-            # We locate the maximum temperature point by scanning 24h chunks (index 8, 16, 24)
-            step = 8 if "gfs" in str(ds).lower() or "nam" in str(ds).lower() else 24
-            return int(value * step)
-    except:
-        # Static index fallback
-        if param_type == "rain":
-            mapping = {24: 8, 48: 16, 72: 24}
-            return mapping.get(value, 8)
-        return int(value)
-
-
 def get_model_data(target_model, map_type, forecast_setting):
     """
     Queries THREDDS. Dynamically detects variable, coordinate dimensions, and 
@@ -198,9 +168,22 @@ def get_model_data(target_model, map_type, forecast_setting):
                     
                 grid_temp = max_temp_grid.values
             else:
-                # For Rain: Find the forecast hour coordinate matching the user's accumulation window
-                time_idx = np.abs(hours_since_start - float(forecast_setting)).argmin()
-                subset_sliced = subset.isel(**{time_dim: int(time_idx)}).squeeze()
+                # For Rain: Find all time steps up to the target forecast accumulation window
+                time_indices = np.where(hours_since_start <= float(forecast_setting))[0]
+                if len(time_indices) == 0:
+                    time_indices = [0]
+                    
+                subset_rain = subset.isel(**{time_dim: time_indices})
+                
+                # Check if the variable is stored as intervals (1h or 3h chunks) rather than continuous accumulation
+                is_interval = any(acc in temp_var.lower() for acc in ["1_hour", "3_hour", "6_hour", "acc"])
+                
+                if is_interval:
+                    # Sum all intervals up to target hour for true continuous accumulation
+                    subset_sliced = subset_rain.sum(dim=time_dim).squeeze().load()
+                else:
+                    # Already stored as bulk accumulated values from start (F00), slice last element
+                    subset_sliced = subset_rain.isel(**{time_dim: -1}).squeeze().load()
                 
                 # Convert mm to inches
                 units = ds[temp_var].attrs.get('units', '').lower()
@@ -209,7 +192,7 @@ def get_model_data(target_model, map_type, forecast_setting):
                 else:
                     grid_data = subset_sliced
                     
-                grid_temp = grid_data.load().values
+                grid_temp = grid_data.values
             
             # Match grid array positions to stations
             for city, (lat, lon) in MAP_LABELS_REDUCED.items():
