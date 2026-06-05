@@ -43,26 +43,33 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             ds = xr.open_dataset(url)
             ds = ds.metpy.parse_cf()
             
+            is_precip = "Precipitation" in map_type
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
             
+            # 1. Primary search: exact candidate matches
             for candidate in candidates:
                 for v in ds.variables:
-                    # Converted both candidate and dataset variable to lowercase to prevent OPeNDAP mismatching
                     if candidate.lower() in v.lower():
                         temp_var = v
                         break
                 if temp_var is not None:
                     break
                     
+            # 2. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation)
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
-                    if any(c in v_lower for c in coordinate_names) and 'temp' not in v_lower and 'precip' not in v_lower:
+                    if any(c in v_lower for c in coordinate_names):
                         continue
-                    if 'temperature' in v_lower or 'temp' in v_lower or 'precip' in v_lower:
-                        temp_var = v
-                        break
+                    if is_precip:
+                        if 'precip' in v_lower or 'apcp' in v_lower or 'prate' in v_lower:
+                            temp_var = v
+                            break
+                    else:
+                        if 'temperature' in v_lower or 'temp' in v_lower:
+                            temp_var = v
+                            break
                         
             if temp_var is None:
                 raise ValueError(f"No matching variables found in the {name} schema.")
@@ -163,7 +170,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             subset = subset.squeeze()
             units = ds[temp_var].attrs.get('units', '')
             
-            # Metadata-backed unit parser to process millimeters/meters precisely [input_file_5.py]
             if "Precipitation" in map_type:
                 units_lower = units.lower()
                 if 'inch' in units_lower or 'in' == units_lower:
@@ -173,7 +179,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 elif 'mm' in units_lower or 'kg' in units_lower:
                     subset_converted = subset / 25.4  # Millimeters or kg/m^2 to inches
                 else:
-                    # Deep-layer statistical validation in case metadata fails
                     max_raw = float(subset.max().values)
                     if max_raw < 0.5 and max_raw > 0.001:
                         subset_converted = subset * 39.3701  # Assumed meters
@@ -188,12 +193,10 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 time_indices = [np.abs(pd_times_utc - target_time_utc).argmin()]
             else:
-                # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
                 target_tz = zoneinfo.ZoneInfo(region.timezone_str)
                 now_local = datetime.datetime.now(target_tz)
