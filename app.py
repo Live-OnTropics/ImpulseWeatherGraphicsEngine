@@ -4,35 +4,42 @@ import datetime
 import zoneinfo
 import streamlit as st
 
-# Import custom modular backend elements
-from src.config import MODEL_ENDPOINTS
-from src.data_fetcher import get_model_data
-from src.map_renderer import render_texas_map
+# Custom modular backends
+from src.config.models import MODEL_ENDPOINTS
+from src.config.regions import TexasRegion
+from src.products.temperature import TemperatureProduct
+from src.core.data_fetcher import get_model_data
+from src.core.map_renderer import render_map
 
-# Detect if running in Streamlit runtime environment
 import streamlit.runtime as st_runtime
 is_streamlit = st_runtime.exists()
 
 def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_str, uploaded_logo):
     try:
-        # 1. Fetch live coordinates safely (Raises ConnectionError if server is offline)
-        grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj, run_cycle_str = get_model_data(
-            target_model, map_type, forecast_setting
+        # Instantiate current Product & target Region definitions
+        product = TemperatureProduct()
+        region = TexasRegion()
+
+        # 1. Fetch grid coordinates and array metrics dynamically
+        grid_lon, grid_lat, grid_values, map_label_values, model_name, data_proj, run_cycle_str = get_model_data(
+            target_model, map_type, forecast_setting, product, region
         )
         
-        # 2. Render map canvas
-        fig = render_texas_map(
-            grid_lon, grid_lat, grid_temp, map_label_temps, 
+        # 2. Plot grid overlay inside basemap parameters
+        fig = render_map(
+            grid_lon, grid_lat, grid_values, map_label_values, 
             model_name, data_proj, map_type, forecast_setting_str, 
-            run_cycle_str, uploaded_logo_file=uploaded_logo
+            run_cycle_str, product, region, uploaded_logo_file=uploaded_logo
         )
         
-        # 3. Save map image thread-safely
+        # 3. Save resulting visualization thread-safely
         output_filename = 'texas_forecast_highs.png'
         fig.savefig(output_filename, dpi=100, facecolor=fig.get_facecolor(), edgecolor='none')
         
         return True, output_filename
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return False, str(e)
 
 
@@ -41,21 +48,17 @@ if __name__ == '__main__':
         st.title("Impulse Weather Map Dashboard")
         st.write("Configure your options on the sidebar and click **Generate Map**.")
         
-        # 1. Model Selection (GFS is now labeled cleanly)
         selected_model = st.sidebar.selectbox(
             "Select Numerical Model:",
             ["NDFD", "HRRR (2.5km)", "NAM (12km)", "GFS"],
-            index=3  # Default GFS
+            index=3
         )
         
-        # 2. Map Type Selection
         selected_map_type = st.sidebar.selectbox(
             "Select Map Type:",
             ["Forecast High Temperatures", "Forecast Low Temperatures"]
         )
         
-        # 3. Dynamic Forecast Day depth limits based on selected model's forecast duration
-        # Resilient, case-insensitive substring scanner (prevents any configuration IndexError)
         selected_ep = None
         for ep in MODEL_ENDPOINTS:
             ep_name_lower = ep["name"].lower()
@@ -64,13 +67,12 @@ if __name__ == '__main__':
                 selected_ep = ep
                 break
                 
-        # Safe fallback default in case of any unexpected naming mismatches
         if selected_ep is None:
             selected_ep = MODEL_ENDPOINTS[0]
             
         max_days = selected_ep.get("max_days", 5)
         
-        # Establish real calendar dates relative to Austin (Central) Time
+        # Keep calendar parameters aligned to regional local timezone boundaries
         austin_tz = zoneinfo.ZoneInfo("America/Chicago")
         today_date = datetime.datetime.now(austin_tz).date()
         
@@ -78,18 +80,14 @@ if __name__ == '__main__':
         day_mapping = {}
         for i in range(max_days):
             day_date = today_date + datetime.timedelta(days=i)
-            # Create readable labels like "Friday, Jun 05"
             day_label = day_date.strftime("%A, %b %d")
             day_options.append(day_label)
             day_mapping[day_label] = i
             
         selected_day_label = st.sidebar.selectbox("Select Forecast Day:", day_options)
         forecast_setting = day_mapping[selected_day_label]
-        
-        # Extract name of day (e.g. "FRIDAY")
         forecast_setting_str = (today_date + datetime.timedelta(days=forecast_setting)).strftime("%A").upper()
             
-        # 4. Brand Logo Uploader
         uploaded_logo = st.sidebar.file_uploader("Upload Brand Logo (Optional):", type=["png"])
         
         if st.sidebar.button("Generate Map", type="primary"):
@@ -101,9 +99,8 @@ if __name__ == '__main__':
                 
                 if success:
                     st.success("Map generated successfully!")
-                    st.image(result, width='stretch')  # Resolved: use width='stretch' to prevent deprecation warning
+                    st.image(result, width='stretch')
                     
-                    # File downloader widget
                     with open(result, "rb") as file:
                         st.download_button(
                             label="Download High-Resolution Map",
@@ -115,7 +112,6 @@ if __name__ == '__main__':
                     st.error(f"Failed to generate map: {result}")
             st.write(f"Refreshed: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     else:
-        # Local terminal execution mode
         print("Executing local weather generation pipeline...")
         success, result = execute_pipeline("GFS", "Forecast High Temperatures", 0, "TODAY", None)
         if success:
