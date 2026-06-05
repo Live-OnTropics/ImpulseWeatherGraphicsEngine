@@ -1,7 +1,6 @@
 # src/config.py
-import numpy as np
 
-# Coordinates ONLY for the 10 curated cities (No fake target temperatures)
+# Coordinates ONLY for the 10 curated cities (No hardcoded fake temperatures)
 MAP_LABELS_REDUCED = {
     'AMARILLO': (35.2219, -101.8313),
     'ODESSA-MIDLAND': (31.9973, -102.0779),  # Combined Odessa-Midland hub
@@ -15,12 +14,12 @@ MAP_LABELS_REDUCED = {
     'BROWNSVILLE': (25.9017, -97.4975)
 }
 
-# Locked temperature scale endpoints (from -40F to 120F)
-VMIN = -40
-VMAX = 120
+# Locked temperature scale endpoints (from -40°F to 120°F)
+TEMP_VMIN = -40
+TEMP_VMAX = 120
 
 # Color intervals mapped precisely to replicate input_file_5 with custom neon-sky blue transitions
-COLOR_POINTS = [
+TEMP_COLOR_POINTS = [
     (-40, '#ff00ff'),  # Magenta
     (-30, '#8b008b'),  # Dark Magenta / Purple
     (-20, '#4b0082'),  # Indigo
@@ -40,32 +39,41 @@ COLOR_POINTS = [
     (120, '#999999'),  # Grey
 ]
 
-# Scale intervals in clean 10-degree steps
-COLORBAR_TICKS = [-40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
+TEMP_COLORBAR_TICKS = [-40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
+
+# Rain Accumulation scale boundaries (0.00 inches to 5.00+ inches)
+RAIN_VMIN = 0.0
+RAIN_VMAX = 5.0
+RAIN_COLORBAR_TICKS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
 
 # Priority sequence list of Unidata THREDDS datasets
 MODEL_ENDPOINTS = [
     {
         "name": "NDFD",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/NDFD/NWS/CONUS/CONDUIT/Best",
-        "temp_candidates": [
-            "maximum_temperature_height_above_ground",
-            "temperature_height_above_ground"
-        ]
+        "highs_candidates": ["maximum_temperature_height_above_ground_Mixed_intervals_Maximum", "maximum_temperature_height_above_ground"],
+        "lows_candidates": ["minimum_temperature_height_above_ground_Mixed_intervals_Minimum", "minimum_temperature_height_above_ground"],
+        "rain_candidates": ["total_precipitation_surface_6_Hour_Accumulation", "total_precipitation_surface"]
     },
     {
         "name": "HRRR (2.5km)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/HRRR/CONUS_2p5km/Best",
-        "temp_candidates": ["temperature_height_above_ground"]
+        "highs_candidates": ["temperature_height_above_ground"],
+        "lows_candidates": ["temperature_height_above_ground"],
+        "rain_candidates": ["total_precipitation_surface_1_Hour_Accumulation", "total_precipitation_surface"]
     },
     {
         "name": "NAM (12km)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/NAM/CONUS_12km/Best",
-        "temp_candidates": ["temperature_height_above_ground"]
+        "highs_candidates": ["temperature_height_above_ground"],
+        "lows_candidates": ["temperature_height_above_ground"],
+        "rain_candidates": ["total_precipitation_surface_3_Hour_Accumulation", "total_precipitation_surface"]
     },
     {
         "name": "GFS (0.25deg)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/GFS/Global_0p25deg/Best",
-        "temp_candidates": ["temperature_height_above_ground"]
+        "highs_candidates": ["temperature_height_above_ground"],
+        "lows_candidates": ["temperature_height_above_ground"],
+        "rain_candidates": ["total_precipitation_surface_Mixed_intervals_Accumulation", "total_precipitation_surface"]
     }
 ]
