@@ -455,7 +455,7 @@ def generate_map(target_model=None, uploaded_logo_file=None):
     # ------------------------------------------
     # CLEAN FLOATING HUD HEADER (TOP LEFT)
     # ------------------------------------------
-    ax_header_card = fig.add_axes([0.105, 0.82, 0.45, 0.14])
+    ax_header_card = fig.add_axes([0.095, 0.82, 0.45, 0.14])
     ax_header_card.axis('off')
     
     # Reconstructed Blue Circle Badge with White Outline (No Stretching)
@@ -481,7 +481,7 @@ def generate_map(target_model=None, uploaded_logo_file=None):
             bottom = int(height * 0.80)
             cropped_img = img.crop((left, top, right, bottom))
             
-            # Sub-axes for the circular logo badge (perfect 1:1 aspect square coordinates)
+            # Sub-axes for the circular logo badge (exact square coordinates, made 13% smaller)
             ax_logo = fig.add_axes([0.02, 0.825, 0.065, 0.11555], facecolor='none')
             ax_logo.axis('off')
             ax_logo.set_aspect('equal')
@@ -548,8 +548,8 @@ def generate_map(target_model=None, uploaded_logo_file=None):
     cb.outline.set_visible(False)
 
     output_filename = 'texas_forecast_highs.png'
-    plt.savefig(output_filename, dpi=100)
-    plt.close()
+    fig.savefig(output_filename, dpi=100, facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close(fig)
 
 # ==========================================
 # 5. Execution Block (Unified Dual Mode)
