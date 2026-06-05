@@ -3,6 +3,9 @@ import numpy as np
 import xarray as xr
 import metpy
 import cartopy.crs as ccrs
+import pandas as pd
+import zoneinfo
+import datetime
 from src.config import MODEL_ENDPOINTS, MAP_LABELS_REDUCED
 
 def find_nearest_regular_value(lon_coord, lat_coord, grid_data, target_lon, target_lat):
@@ -32,7 +35,9 @@ def get_model_data(target_model, map_type, forecast_setting):
     map_label_temps = {}
     model_name = None
     data_proj = ccrs.PlateCarree()
+    run_cycle_str = ""
     
+    # Priority sequence list of Unidata THREDDS datasets
     endpoints = MODEL_ENDPOINTS.copy()
     if target_model:
         endpoints = [ep for ep in endpoints if target_model in ep["name"]] + [ep for ep in endpoints if target_model not in ep["name"]]
@@ -92,11 +97,33 @@ def get_model_data(target_model, map_type, forecast_setting):
             else:
                 ds_var = ds[temp_var]
 
-            # 4. Classify grid type based solely on active dimensions of the variable
+            # 4. Extract and format the model run cycle (reftime) for display
+            reftime_coord_name = None
+            for coord in ds.coords:
+                if any(k in coord.lower() for k in ['reftime', 'ref_time', 'reference_time']):
+                    reftime_coord_name = coord
+                    break
+                    
+            if reftime_coord_name is not None:
+                try:
+                    ref_val = ds[reftime_coord_name].values
+                    if ref_val.ndim > 0:
+                        ref_val = ref_val[-1]
+                    pd_ref = pd.to_datetime(ref_val)
+                    if pd_ref.tz is None:
+                        pd_ref = pd_ref.tz_localize('UTC')
+                    utc_ref = pd_ref.tz_convert('UTC')
+                    utc_hour = utc_ref.strftime("%H")
+                    run_date = utc_ref.strftime("%Y-%m-%d")
+                    run_cycle_str = f" ({run_date} {utc_hour}Z)"
+                except Exception as e:
+                    print(f"Reference time parsing skipped: {e}")
+
+            # 5. Classify grid type based solely on active dimensions of the variable
             temp_dims = ds_var.dims
             is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
-            # 5. Crop spatial region
+            # 6. Crop spatial region
             if is_projected:
                 # Projected Grid (NAM, HRRR, NDFD)
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
@@ -145,10 +172,10 @@ def get_model_data(target_model, map_type, forecast_setting):
                 grid_lat = lat_arr[y_slice]
                 data_proj = ccrs.PlateCarree()
                 
-            # 6. Locate time dimension
+            # 7. Locate time dimension
             time_dim = [d for d in subset.dims if 'time' in d][0]
             
-            # 7. Deduplicate time dimension
+            # 8. Deduplicate time dimension (Crucial to prevent summing overlapping duplicate forecasts)
             try:
                 time_coord = subset[time_dim]
                 if len(time_coord) != len(np.unique(time_coord)):
@@ -161,8 +188,6 @@ def get_model_data(target_model, map_type, forecast_setting):
             
             # Squeeze out singleton dimensions before conversions
             subset = subset.squeeze()
-            time_vals = subset[time_dim].values
-            hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
             
             # High-Precision Unit Conversions
             units = ds[temp_var].attrs.get('units', '').lower()
@@ -174,13 +199,28 @@ def get_model_data(target_model, map_type, forecast_setting):
             else:
                 subset_converted = subset
             
-            # Isolate the exact 24-hour diurnal slice corresponding to selected day
-            start_hour = forecast_setting * 24
-            end_hour = (forecast_setting + 1) * 24
+            # 9. Timezone-Aware Slicing strictly matching Austin (Central) Calendar Days
+            austin_tz = zoneinfo.ZoneInfo("America/Chicago")
+            now_austin = datetime.datetime.now(austin_tz)
+            today_date = now_austin.date()
             
-            time_indices = np.where((hours_since_start >= start_hour) & (hours_since_start <= end_hour))[0]
+            # Determine the exact calendar date for the selection
+            target_date = today_date + datetime.timedelta(days=int(forecast_setting))
+            
+            # Convert xarray forecast times to pandas and localize/convert to Austin Time
+            pd_times = pd.to_datetime(subset[time_dim].values)
+            if pd_times.tz is None:
+                pd_times_utc = pd_times.tz_localize('UTC')
+            else:
+                pd_times_utc = pd_times.tz_convert('UTC')
+            pd_times_austin = pd_times_utc.tz_convert('America/Chicago')
+            austin_dates = pd_times_austin.date
+            
+            # Locate indices matching the target calendar date in Austin
+            time_indices = np.where(austin_dates == target_date)[0]
             if len(time_indices) == 0:
-                time_indices = np.where(hours_since_start >= start_hour)[0]
+                # Fallback to nearest day coordinates if target date is outside short-range model outputs
+                time_indices = np.where(austin_dates == austin_dates[0])[0]
             if len(time_indices) == 0:
                 time_indices = [0]
                 
@@ -205,7 +245,7 @@ def get_model_data(target_model, map_type, forecast_setting):
                 map_label_temps[city] = int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
-            return grid_lon, grid_lat, grid_temp, map_label_temps, name, data_proj
+            return grid_lon, grid_lat, grid_temp, map_label_temps, name, data_proj, run_cycle_str
             
         except Exception as ex:
             print(f"   [!] Failed to pull from {name}: {ex}")
