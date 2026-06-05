@@ -57,9 +57,9 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
-                    if any(c in v_lower for c in coordinate_names) and 'temp' not in v_lower:
+                    if any(c in v_lower for c in coordinate_names) and 'temp' not in v_lower and 'precip' not in v_lower:
                         continue
-                    if 'temperature' in v_lower or 'temp' in v_lower:
+                    if 'temperature' in v_lower or 'temp' in v_lower or 'precip' in v_lower:
                         temp_var = v
                         break
                         
@@ -96,7 +96,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             temp_dims = ds_var.dims
             is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
-            # Define a 1.5 degree buffer to prevent any edge contour gaps
             padding = 1.5
 
             if is_projected:
@@ -163,22 +162,27 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             units = ds[temp_var].attrs.get('units', '')
             subset_converted = product.process_units(subset, units)
             
-            target_tz = zoneinfo.ZoneInfo(region.timezone_str)
-            now_local = datetime.datetime.now(target_tz)
-            today_date = now_local.date()
-            target_date = today_date + datetime.timedelta(days=int(forecast_setting))
-            
             pd_times = pd.to_datetime(subset[time_dim].values)
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
-            local_dates = pd_times_local.date
             
-            time_indices = np.where(local_dates == target_date)[0]
-            if len(time_indices) == 0:
-                time_indices = np.where(local_dates == local_dates[0])[0]
-            if len(time_indices) == 0:
-                time_indices = [0]
-                
+            if "Precipitation" in map_type:
+                # Accumulate values up to the selected forecast hour index
+                target_time = pd_times_local[0] + datetime.timedelta(hours=int(forecast_setting))
+                time_indices = [np.abs(pd_times_local - target_time).argmin()]
+            else:
+                # Traditional temperature date boundary mapping
+                target_tz = zoneinfo.ZoneInfo(region.timezone_str)
+                now_local = datetime.datetime.now(target_tz)
+                today_date = now_local.date()
+                target_date = today_date + datetime.timedelta(days=int(forecast_setting))
+                local_dates = pd_times_local.date
+                time_indices = np.where(local_dates == target_date)[0]
+                if len(time_indices) == 0:
+                    time_indices = np.where(local_dates == local_dates[0])[0]
+                if len(time_indices) == 0:
+                    time_indices = [0]
+                    
             subset_day = subset_converted.isel(**{time_dim: time_indices})
             max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
             grid_temp = max_temp_grid.values
@@ -188,7 +192,9 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     val = find_nearest_projected_value(grid_lon, grid_lat, grid_temp, lon, lat, data_proj)
                 else:
                     val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
-                map_label_temps[city] = int(round(val))
+                
+                # Render floats for precipitation, integers for temperature
+                map_label_temps[city] = round(val, 2) if "Precipitation" in map_type else int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
             return grid_lon, grid_lat, grid_temp, map_label_temps, name, data_proj, run_cycle_str
