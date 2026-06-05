@@ -135,7 +135,7 @@ if __name__ == '__main__':
                 selected_ep = MODEL_ENDPOINTS[0]
                 
             if selected_map_type == "Total Precipitation":
-                # Dynamic forecast hour interval menu selection
+                # Determine model temporal depth boundaries
                 if "hrrr" in selected_model.lower():
                     max_hours, step = 36, 1
                 elif "rap" in selected_model.lower():
@@ -149,10 +149,22 @@ if __name__ == '__main__':
                 else:  # NDFD
                     max_hours, step = 72, 6
                 
+                # Retrieve current synoptic cycle initialization in UTC to align frames [input_file_4.py]
+                now_utc = datetime.datetime.now(zoneinfo.ZoneInfo("UTC"))
+                if "hrrr" in selected_model.lower() or "rap" in selected_model.lower() or "3km" in selected_model.lower():
+                    run_utc = now_utc.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=2)
+                else:
+                    cycle_hour = (now_utc.hour // 6) * 6
+                    run_utc = now_utc.replace(hour=cycle_hour, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=6)
+                
+                # Convert synchronization hour to localized Texas (Central) base time [input_file_0.py]
+                base_time_local = run_utc.astimezone(local_tz)
+                
                 time_options = []
                 time_mapping = {}
                 for h in range(step, max_hours + 1, step):
-                    valid_time = datetime.datetime.now(local_tz) + datetime.timedelta(hours=h)
+                    valid_time = base_time_local + datetime.timedelta(hours=h)
+                    # Formats options cleanly in Central time (e.g. Friday, Jun 05 @ 06:00 PM)
                     label = valid_time.strftime("%A, %b %d @ %I:%M %p") + f" (+{h}h)"
                     time_options.append(label)
                     time_mapping[label] = h
