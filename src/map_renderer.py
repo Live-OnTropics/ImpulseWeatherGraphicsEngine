@@ -164,7 +164,7 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     # ------------------------------------------
     ax_header_card = fig.add_axes([0.105, 0.82, 0.45, 0.14])
     ax_header_card.axis('off')
-    ax_header_card.patch.set_facecolor('none')  # Corrected: Explicitly transparent card background
+    ax_header_card.patch.set_facecolor('none')  # Corrected: 100% transparent header card background
     
     # Reconstructed Blue Circle Badge with White Outline (No Stretching)
     logo_drawn = False
