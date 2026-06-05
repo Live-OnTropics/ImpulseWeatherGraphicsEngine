@@ -23,6 +23,36 @@ def find_nearest_projected_value(x_coord, y_coord, grid_data, target_lon, target
     return float(np.atleast_1d(val).flat[0])
 
 
+def get_time_index(ds, time_dim, param_type, value):
+    """
+    Finds the exact index in the time dimension coordinate arrays.
+    For Temps: maps "Today", "Tomorrow", "Day 3" indices.
+    For Rain: maps target forecast accumulation hours (24h, 48h, 72h).
+    """
+    try:
+        time_vals = ds[time_dim].values
+        hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
+        
+        if param_type == "rain":
+            # For rain, we find the forecast hour that closely matches our target hour window (e.g., 24h)
+            idx = np.abs(hours_since_start - float(value)).argmin()
+            return int(idx)
+        else:
+            # For temperatures, NDFD publishes 12-hour maximums, so index maps cleanly
+            if "ndfd" in str(ds).lower():
+                return int(value)
+            # In GFS/NAM, max temperature isn't aggregated into daily intervals.
+            # We locate the maximum temperature point by scanning 24h chunks (index 8, 16, 24)
+            step = 8 if "gfs" in str(ds).lower() or "nam" in str(ds).lower() else 24
+            return int(value * step)
+    except:
+        # Static index fallback
+        if param_type == "rain":
+            mapping = {24: 8, 48: 16, 72: 24}
+            return mapping.get(value, 8)
+        return int(value)
+
+
 def get_model_data(target_model, map_type, forecast_setting):
     """
     Queries THREDDS. Dynamically detects variable, coordinate dimensions, and 
@@ -56,9 +86,20 @@ def get_model_data(target_model, map_type, forecast_setting):
         try:
             ds = xr.open_dataset(url)
             
-            # Locate active variable
+            # 1. Parse CF metadata immediately on the newly opened dataset
+            ds = ds.metpy.parse_cf()
+            
+            # 2. Discover temperature/precipitation variable robustly
             temp_var = None
-            for candidate in candidates:
+            coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
+            temp_candidates = [
+                'temperature_height_above_ground',
+                'maximum_temperature_height_above_ground',
+                'temperature_surface',
+                'temp_air'
+            ]
+            
+            for candidate in temp_candidates:
                 for v in ds.variables:
                     if candidate in v.lower():
                         temp_var = v
@@ -69,6 +110,8 @@ def get_model_data(target_model, map_type, forecast_setting):
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
+                    if any(c in v_lower for c in coordinate_names) and 'temp' not in v_lower:
+                        continue
                     if 'temperature' in v_lower or 'temp' in v_lower or 'precip' in v_lower:
                         temp_var = v
                         break
@@ -76,7 +119,7 @@ def get_model_data(target_model, map_type, forecast_setting):
             if temp_var is None:
                 raise ValueError("Variable is currently missing on the active server instance.")
 
-            # Isolate the latest single model run cycle to prevent summing overlapping forecasts
+            # 3. Isolate the latest single model run cycle (reftime) to prevent summing overlapping forecasts
             reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
             if reftime_dims:
                 # Select only the most recent model run cycle
@@ -84,7 +127,7 @@ def get_model_data(target_model, map_type, forecast_setting):
             else:
                 ds_var = ds[temp_var]
 
-            # Classify grid type based solely on active dimensions (No coordinate scanning needed)
+            # 4. Classify grid type based solely on active dimensions (No coordinate scanning needed)
             temp_dims = ds_var.dims
             is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
@@ -95,7 +138,6 @@ def get_model_data(target_model, map_type, forecast_setting):
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
                 y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
                 
-                ds = ds.metpy.parse_cf()
                 data_proj = ds_var.metpy.cartopy_crs
                 
                 transformed_corners = data_proj.transform_points(
@@ -104,7 +146,7 @@ def get_model_data(target_model, map_type, forecast_setting):
                 x_slice = slice(min(transformed_corners[:, 0]), max(transformed_corners[:, 0]))
                 y_slice = slice(min(transformed_corners[:, 1]), max(transformed_corners[:, 1]))
                 
-                # Apply slice directly to isolated run cycle variable
+                # Slice variables using coordinate boundaries
                 subset = ds_var.sel(**{x_dim: x_slice, y_dim: y_slice})
                 grid_lon = subset[x_dim].values
                 grid_lat = subset[y_dim].values
