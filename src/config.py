@@ -43,7 +43,7 @@ TEMP_COLORBAR_TICKS = [-40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90
 RAIN_VMIN = 0.0
 RAIN_VMAX = 18.0
 
-# Custom Rain Scale matching input_file_8 and your exact color specifications
+# Rebuilt Rain Scale matching your exact specifications and opacity limits
 RAIN_COLOR_POINTS = [
     (0.0,   '#151c24', 0.0),  # 0 in: Transparent (matches background)
     (0.005, '#d3d3d3', 0.5),  # Fades in
