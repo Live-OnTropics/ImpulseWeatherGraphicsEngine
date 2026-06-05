@@ -85,7 +85,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     except:
         pass
     
-    # Regional clipping configurations
+    # Regional clipping and boundary mask operations
     if hasattr(region, 'mask_state') and region.mask_state is not None:
         try:
             states_shp = shapereader.natural_earth(resolution='50m', category='cultural', name='admin_1_states_provinces')
@@ -106,7 +106,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         except Exception as ex:
             print(f"Skipping geometry mask operations: {ex}")
     else:
-        # If no mask is applied, still draw a crisp, bold border around Texas to preserve regional focus
+        # If no cutout mask is active, draw the highlight border of the primary state outline
         try:
             states_shp = shapereader.natural_earth(resolution='50m', category='cultural', name='admin_1_states_provinces')
             reader = shapereader.Reader(states_shp)
@@ -123,7 +123,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
     ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
     
-    # Dynamic offsets (scaled proportionally to the region's dimensional span)
+    # Compute proportional layout metrics using viewport dimensions
     lon_span = region.extent[1] - region.extent[0]
     lat_span = region.extent[3] - region.extent[2]
     
@@ -149,7 +149,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                     fontsize=48, fontweight='bold', family=font_family,
                     ha='center', va='center', transform=ccrs.PlateCarree(), zorder=7)
         
-        # City Label Pill (centered cleanly below temperature metrics)
+        # City Label Pill
         ax_map.text(lon, lat + city_offset, city, color='white', fontsize=22, fontweight='bold',
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
@@ -188,7 +188,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             img_w, img_h = cropped_img.size
             aspect = img_w / img_h
             
-            scale = 0.65
+            scale = 0.74
             if aspect > 1.0:
                 x_w = scale
                 x_start = 0.5 - x_w / 2.0
@@ -208,7 +208,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             clip_circle = Circle((0.5, 0.5), 0.44, transform=ax_logo.transAxes)
             im.set_clip_path(clip_circle)
         except Exception as e:
-            print(f"Could not render custom logo frame: {e}")
+            print(f"Could not render brand logo frame: {e}")
             
     title_x = 0.01
     capsule_x = 0.01
