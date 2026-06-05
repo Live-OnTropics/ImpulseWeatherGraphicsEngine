@@ -76,8 +76,16 @@ def get_model_data(target_model, map_type, forecast_setting):
             if temp_var is None:
                 raise ValueError("Variable is currently missing on the active server instance.")
 
+            # Isolate the latest single model run cycle to prevent summing overlapping forecasts
+            reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
+            if reftime_dims:
+                # Select only the most recent model run cycle
+                ds_var = ds[temp_var].isel(**{reftime_dims[0]: -1})
+            else:
+                ds_var = ds[temp_var]
+
             # Classify grid type based solely on active dimensions (No coordinate scanning needed)
-            temp_dims = ds[temp_var].dims
+            temp_dims = ds_var.dims
             is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
             # Crop spatial region
@@ -88,7 +96,7 @@ def get_model_data(target_model, map_type, forecast_setting):
                 y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
                 
                 ds = ds.metpy.parse_cf()
-                data_proj = ds[temp_var].metpy.cartopy_crs
+                data_proj = ds_var.metpy.cartopy_crs
                 
                 transformed_corners = data_proj.transform_points(
                     ccrs.PlateCarree(), np.array([-112.44, -87.56]), np.array([24.0, 38.0])
@@ -96,7 +104,8 @@ def get_model_data(target_model, map_type, forecast_setting):
                 x_slice = slice(min(transformed_corners[:, 0]), max(transformed_corners[:, 0]))
                 y_slice = slice(min(transformed_corners[:, 1]), max(transformed_corners[:, 1]))
                 
-                subset = ds[temp_var].sel(**{x_dim: x_slice, y_dim: y_slice})
+                # Apply slice directly to isolated run cycle variable
+                subset = ds_var.sel(**{x_dim: x_slice, y_dim: y_slice})
                 grid_lon = subset[x_dim].values
                 grid_lat = subset[y_dim].values
             else:
@@ -126,7 +135,7 @@ def get_model_data(target_model, map_type, forecast_setting):
                 y_slice = slice(min(lat_indices), max(lat_indices) + 1)
                 x_slice = slice(min(lon_indices), max(lon_indices) + 1)
                 
-                subset = ds[temp_var].isel(**{y_dim: y_slice, x_dim: x_slice})
+                subset = ds_var.isel(**{y_dim: y_slice, x_dim: x_slice})
                 grid_lon = lon_arr[x_slice]
                 grid_lat = lat_arr[y_slice]
                 data_proj = ccrs.PlateCarree()
@@ -136,7 +145,7 @@ def get_model_data(target_model, map_type, forecast_setting):
             time_vals = subset[time_dim].values
             hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
             
-            # Squeeze out singleton dimensions before conversions (fixes potential dimension errors)
+            # Squeeze out singleton dimensions before conversions
             subset = subset.squeeze()
             
             # High-Precision Unit Conversions (Performed on raw float arrays prior to temporal calculations)
