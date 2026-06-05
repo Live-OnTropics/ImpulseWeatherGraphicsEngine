@@ -64,19 +64,58 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_map.set_position([0, 0, 1, 1])
     ax_map.set_extent(region.extent, crs=ccrs.PlateCarree())
     
-    vmin, vmax = product.vmin, product.vmax
-    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-    color_range = float(vmax - vmin)
-    color_list = [((val - vmin) / color_range, color) for val, color in product.color_points]
-    custom_cmap = mcolors.LinearSegmentedColormap.from_list('impulse_product_scale', color_list)
-    ticks = product.colormap_ticks
-    unit_label = product.unit_label
-    val_suffix = product.val_suffix
-        
-    levels = np.linspace(vmin, vmax, 161)
-    cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=levels, cmap=custom_cmap, norm=norm,
-                         transform=data_proj, extend='both', zorder=1)
+    is_spc = "Convective Outlook" in map_type
     
+    # ----------------------------------------------------
+    # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
+    # ----------------------------------------------------
+    if is_spc:
+        # Vector-based polygon mapping for convective outlook boundaries
+        features = grid_values if grid_values is not None else []
+        from shapely.geometry import shape
+        
+        # Draw lowest risks first so severe areas stay layered on top
+        RISK_ORDER = {"TSTM": 1, "MRGL": 2, "SLGT": 3, "ENH": 4, "MDT": 5, "HIGH": 6}
+        features_sorted = sorted(features, key=lambda f: RISK_ORDER.get(f["properties"].get("LABEL2", ""), 0))
+        
+        SPC_COLORS = {
+            "TSTM": "#B7E9C1", "MRGL": "#7FE57F", "SLGT": "#FFE57F",
+            "ENH":  "#FFA54F", "MDT":  "#E50000", "HIGH": "#E500E5"
+        }
+        SPC_BORDER_COLORS = {
+            "TSTM": "#005500", "MRGL": "#005500", "SLGT": "#997A00",
+            "ENH":  "#994C00", "MDT":  "#660000", "HIGH": "#660066"
+        }
+        
+        for f in sorted(features_sorted, key=lambda x: RISK_ORDER.get(x["properties"].get("LABEL2", ""), 0)):
+            label2 = f["properties"].get("LABEL2", "")
+            if not label2:
+                continue
+            fill_color = SPC_COLORS.get(label2, "#ffffff")
+            border_color = SPC_BORDER_COLORS.get(label2, "#000000")
+            
+            try:
+                geom = shape(f["geometry"])
+                ax_map.add_geometries([geom], crs=ccrs.PlateCarree(),
+                                      facecolor=fill_color, edgecolor=border_color,
+                                      linewidth=1.2, alpha=0.6, zorder=1)
+            except Exception as e:
+                print(f"Error rendering SPC shape: {e}")
+    else:
+        # Gridded temperature contour mapping
+        vmin, vmax = product.vmin, product.vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        color_range = float(vmax - vmin)
+        color_list = [((val - vmin) / color_range, color) for val, color in product.color_points]
+        custom_cmap = mcolors.LinearSegmentedColormap.from_list('impulse_product_scale', color_list)
+            
+        levels = np.linspace(vmin, vmax, 161)
+        cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=levels, cmap=custom_cmap, norm=norm,
+                             transform=data_proj, extend='both', zorder=1)
+    
+    # ----------------------------------------------------
+    # GEOGRAPHIC LAYER DECORATIONS & HIGHLIGHTS
+    # ----------------------------------------------------
     try:
         counties_shp = shapereader.natural_earth(resolution='10m', category='cultural', name='admin_2_counties')
         counties_reader = shapereader.Reader(counties_shp)
@@ -85,7 +124,6 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     except:
         pass
     
-    # Regional clipping and boundary mask operations
     if hasattr(region, 'mask_state') and region.mask_state is not None:
         try:
             states_shp = shapereader.natural_earth(resolution='50m', category='cultural', name='admin_1_states_provinces')
@@ -106,7 +144,6 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         except Exception as ex:
             print(f"Skipping geometry mask operations: {ex}")
     else:
-        # If no cutout mask is active, draw the highlight border of the primary state outline
         try:
             states_shp = shapereader.natural_earth(resolution='50m', category='cultural', name='admin_1_states_provinces')
             reader = shapereader.Reader(states_shp)
@@ -123,7 +160,9 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
     ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
     
-    # Compute proportional layout metrics using viewport dimensions
+    # ----------------------------------------------------
+    # ADAPTIVE ANNOTATIONS & TEXT OVERLAYS
+    # ----------------------------------------------------
     lon_span = region.extent[1] - region.extent[0]
     lat_span = region.extent[3] - region.extent[2]
     
@@ -133,41 +172,36 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     shadow_offset_lon = lon_span * 0.0016
     shadow_offset_lat = -lat_span * 0.0028
     path_effects = [withStroke(linewidth=3, foreground='#151c24')]
+    val_suffix = product.val_suffix if not is_spc else ""
     
     for city, (lat, lon) in region.cities.items():
-        val = map_label_values.get(city)
-        if val is None:
-            continue
-        
-        # Temperature Text Drop Shadow
-        ax_map.text(lon + shadow_offset_lon, lat + temp_offset + shadow_offset_lat, f"{val}{val_suffix}", color='black', alpha=0.5,
-                    fontsize=48, fontweight='bold', family=font_family,
-                    ha='center', va='center', transform=ccrs.PlateCarree(), zorder=6)
-        
-        # Temperature Text Main Layer
-        ax_map.text(lon, lat + temp_offset, f"{val}{val_suffix}", color='white',
-                    fontsize=48, fontweight='bold', family=font_family,
-                    ha='center', va='center', transform=ccrs.PlateCarree(), zorder=7)
-        
-        # City Label Pill
+        # Always render the city name badge to keep coordinates oriented
         ax_map.text(lon, lat + city_offset, city, color='white', fontsize=22, fontweight='bold',
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
+        # Display the numerical values or risk code labels dynamically on top
+        val = map_label_values.get(city)
+        if val is not None and val != "" and val != "NOHZ":
+            ax_map.text(lon + shadow_offset_lon, lat + temp_offset + shadow_offset_lat, f"{val}{val_suffix}", color='black', alpha=0.5,
+                        fontsize=48, fontweight='bold', family=font_family,
+                        ha='center', va='center', transform=ccrs.PlateCarree(), zorder=6)
+            
+            ax_map.text(lon, lat + temp_offset, f"{val}{val_suffix}", color='white',
+                        fontsize=48, fontweight='bold', family=font_family,
+                        ha='center', va='center', transform=ccrs.PlateCarree(), zorder=7)
+            
     for spine in ax_map.spines.values():
         spine.set_visible(False)
         
-    # Floating header HUD (top-left)
+    # ----------------------------------------------------
+    # BRANDING HUD MODULES (TOP-LEFT)
+    # ----------------------------------------------------
     ax_header_card = fig.add_axes([0.105, 0.82, 0.45, 0.14])
     ax_header_card.axis('off')
     ax_header_card.patch.set_facecolor('none')
     
-    active_logo_source = None
-    if uploaded_logo_file is not None:
-        active_logo_source = uploaded_logo_file
-    elif os.path.exists("assets/logos/ImpulseWXLogo.png"):
-        active_logo_source = "assets/logos/ImpulseWXLogo.png"
-        
+    active_logo_source = "assets/logos/ImpulseWXLogo.png" if os.path.exists("assets/logos/ImpulseWXLogo.png") else None
     if active_logo_source is not None:
         try:
             from PIL import Image
@@ -222,18 +256,40 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                         fontweight='bold', family=font_family, va='center',
                         bbox=dict(boxstyle="round,pad=0.35", fc="#020617", ec="none"))
 
-    # Floating Colorbar (top-right)
-    cax = fig.add_axes([0.60, 0.89, 0.36, 0.015])
-    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
-    
-    fig.text(0.58, 0.897, unit_label, color='white', fontsize=12, fontweight='bold', family=font_family, va='center', ha='right', path_effects=path_effects)
-    cb.ax.tick_params(labelsize=10, colors='white', labelbottom=True)
-    cb.set_ticks(ticks)
-    
-    for label in cb.ax.get_xticklabels():
-        label.set_path_effects(path_effects)
-        label.set_family(font_family)
+    # ----------------------------------------------------
+    # TOP-RIGHT LEGEND MODULE (CONTINUOUS VS CATEGORICAL)
+    # ----------------------------------------------------
+    if is_spc:
+        # Categorical risk blocks legend for SPC Outlook layers
+        ax_legend = fig.add_axes([0.60, 0.88, 0.36, 0.035])
+        ax_legend.axis('off')
+        ax_legend.set_xlim(0, 6)
+        ax_legend.set_ylim(0, 1)
         
-    cb.outline.set_visible(False)
+        SPC_COLORS = {
+            "TSTM": "#B7E9C1", "MRGL": "#7FE57F", "SLGT": "#FFE57F",
+            "ENH":  "#FFA54F", "MDT":  "#E50000", "HIGH": "#E500E5"
+        }
+        risks = ["TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"]
+        for i, r in enumerate(risks):
+            color = SPC_COLORS[r]
+            rect = plt.Rectangle((i, 0.4), 0.9, 0.4, facecolor=color, edgecolor='white', linewidth=1, transform=ax_legend.transData)
+            ax_legend.add_patch(rect)
+            ax_legend.text(i + 0.45, 0.15, r, color='white', fontsize=12, fontweight='bold', family=font_family,
+                           ha='center', va='center', path_effects=path_effects)
+    else:
+        # Continuous numeric colorbar scale for model contours
+        cax = fig.add_axes([0.60, 0.89, 0.36, 0.015])
+        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
+        
+        fig.text(0.58, 0.897, unit_label, color='white', fontsize=12, fontweight='bold', family=font_family, va='center', ha='right', path_effects=path_effects)
+        cb.ax.tick_params(labelsize=10, colors='white', labelbottom=True)
+        cb.set_ticks(ticks)
+        
+        for label in cb.ax.get_xticklabels():
+            label.set_path_effects(path_effects)
+            label.set_family(font_family)
+            
+        cb.outline.set_visible(False)
     
     return fig
