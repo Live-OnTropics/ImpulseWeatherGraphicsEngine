@@ -11,7 +11,7 @@ from matplotlib import font_manager
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.io import shapereader
-from src.config import COLOR_POINTS, COLORBAR_TICKS, VMIN, VMAX, MAP_LABELS_REDUCED
+from src.config import TEMP_COLOR_POINTS, TEMP_COLORBAR_TICKS, RAIN_COLORBAR_TICKS, TEMP_VMIN, TEMP_VMAX, RAIN_VMIN, RAIN_VMAX, MAP_LABELS_REDUCED
 
 def setup_fonts():
     """Downloads Space Grotesk from updated repositories and registers it with matplotlib."""
@@ -57,8 +57,8 @@ def setup_fonts():
     return font_name if font_name in available_fonts else 'sans-serif'
 
 
-def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj, uploaded_logo_file=None):
-    """Renders the 1080p canvas with coordinates, fonts, and clean HUD layers."""
+def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj, map_type, forecast_setting_str, uploaded_logo_file=None):
+    """Renders the 1080p canvas with coordinate dimensions, fonts, and clean HUD overlays."""
     font_family = setup_fonts()
     
     fig = plt.figure(figsize=(19.2, 10.8), facecolor='#0d1117')
@@ -71,12 +71,26 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     ax_map.set_position([0, 0, 1, 1])
     ax_map.set_extent([-112.44, -87.56, 24.0, 38.0], crs=ccrs.PlateCarree())
     
-    # Custom color table definitions (Replicating input_file_5)
-    color_list = [( (val + 40.0) / 160.0, color ) for val, color in COLOR_POINTS]
-    custom_cmap = mcolors.LinearSegmentedColormap.from_list('impulse_temp_scale', color_list)
-    norm = mcolors.Normalize(vmin=VMIN, vmax=VMAX)
+    # Map Type scale definitions
+    is_rain = "Rain" in map_type
     
-    levels = np.linspace(VMIN, VMAX, 161)
+    if is_rain:
+        vmin, vmax = RAIN_VMIN, RAIN_VMAX
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        custom_cmap = plt.cm.YlGnBu  # Industry-standard precipitation colormap
+        ticks = RAIN_COLORBAR_TICKS
+        unit_label = "inches"
+        val_suffix = '"'
+    else:
+        vmin, vmax = TEMP_VMIN, TEMP_VMAX
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        color_list = [( (val + 40.0) / 160.0, color ) for val, color in TEMP_COLOR_POINTS]
+        custom_cmap = mcolors.LinearSegmentedColormap.from_list('impulse_temp_scale', color_list)
+        ticks = TEMP_COLORBAR_TICKS
+        unit_label = "°F"
+        val_suffix = "°"
+        
+    levels = np.linspace(vmin, vmax, 161)
     cf = ax_map.contourf(grid_lon, grid_lat, grid_temp, levels=levels, cmap=custom_cmap, norm=norm,
                          transform=data_proj, extend='both', zorder=1)
     
@@ -121,12 +135,12 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
             continue
         
         # Temperature Text Drop Shadow (offset black text layer)
-        ax_map.text(lon + shadow_offset_lon, lat + 0.22 + shadow_offset_lat, f"{temp_val}°", color='black', alpha=0.5,
+        ax_map.text(lon + shadow_offset_lon, lat + 0.22 + shadow_offset_lat, f"{temp_val}{val_suffix}", color='black', alpha=0.5,
                     fontsize=48, fontweight='bold', family=font_family,
                     ha='center', va='center', transform=ccrs.PlateCarree(), zorder=6)
         
         # Temperature Text Main Layer (white, 48pt)
-        ax_map.text(lon, lat + 0.22, f"{temp_val}°", color='white',
+        ax_map.text(lon, lat + 0.22, f"{temp_val}{val_suffix}", color='white',
                     fontsize=48, fontweight='bold', family=font_family,
                     ha='center', va='center', transform=ccrs.PlateCarree(), zorder=7)
         
@@ -141,7 +155,7 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     # ------------------------------------------
     # CLEAN FLOATING HUD HEADER (TOP LEFT)
     # ------------------------------------------
-    ax_header_card = fig.add_axes([0.095, 0.82, 0.45, 0.14])
+    ax_header_card = fig.add_axes([0.105, 0.82, 0.45, 0.14])
     ax_header_card.axis('off')
     
     # Reconstructed Blue Circle Badge with White Outline (No Stretching)
@@ -197,14 +211,13 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     capsule_x = 0.01
     
     # Drop shadow text for the headline title (shifted down to 0.64)
-    ax_header_card.text(title_x + 0.003, 0.64 - 0.015, "Statewide Forecast", color='black', alpha=0.6,
+    ax_header_card.text(title_x + 0.003, 0.64 - 0.015, map_type, color='black', alpha=0.6,
                         fontsize=36, fontweight='bold', family=font_family, va='center')
-    ax_header_card.text(title_x, 0.64, "Statewide Forecast", color='white', 
+    ax_header_card.text(title_x, 0.64, map_type, color='white', 
                         fontsize=36, fontweight='bold', family=font_family, va='center')
     
     # Pill shaped model subtitle capsule colored #020617 with no outline (raised to 0.35)
-    forecast_day = datetime.date.today().strftime("%A").upper()
-    ax_header_card.text(capsule_x, 0.35, f" {model_name.upper()} MODEL - {forecast_day} OUTLOOK ", color='white', fontsize=20, 
+    ax_header_card.text(capsule_x, 0.35, f" {model_name.upper()} MODEL - {forecast_setting_str} OUTLOOK ", color='white', fontsize=20, 
                         fontweight='bold', family=font_family, va='center',
                         bbox=dict(boxstyle="round,pad=0.35", fc="#020617", ec="none"))
 
@@ -216,9 +229,9 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
     
     # Scale labels with offset drop shadow
-    fig.text(0.58, 0.897, '°F', color='white', fontsize=12, fontweight='bold', family=font_family, va='center', ha='right', path_effects=path_effects)
+    fig.text(0.58, 0.897, unit_label, color='white', fontsize=12, fontweight='bold', family=font_family, va='center', ha='right', path_effects=path_effects)
     cb.ax.tick_params(labelsize=10, colors='white', labelbottom=True)
-    cb.set_ticks(COLORBAR_TICKS)
+    cb.set_ticks(ticks)
     
     # Overlay black outlines on scale ticks for maximum legibility over heat contours
     for label in cb.ax.get_xticklabels():
