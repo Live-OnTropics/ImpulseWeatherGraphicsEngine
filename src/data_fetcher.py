@@ -136,6 +136,26 @@ def get_model_data(target_model, map_type, forecast_setting):
             time_vals = subset[time_dim].values
             hours_since_start = (time_vals - time_vals[0]) / np.timedelta64(1, 'h')
             
+            # Squeeze out singleton dimensions before conversions (fixes potential dimension errors)
+            subset = subset.squeeze()
+            
+            # High-Precision Unit Conversions (Performed on raw float arrays prior to temporal calculations)
+            units = ds[temp_var].attrs.get('units', '').lower()
+            if param_class == "temp":
+                sample_val = float(np.atleast_1d(subset.values).flat[0])
+                if 'k' in units or sample_val > 150:
+                    subset_converted = (subset - 273.15) * 1.8 + 32
+                elif 'c' in units or sample_val < 50:
+                    subset_converted = subset * 1.8 + 32
+                else:
+                    subset_converted = subset
+            else:
+                # Convert precipitation millimeter outputs to standard inches
+                if 'mm' in units or 'grib_units_mm' in str(ds[temp_var]).lower():
+                    subset_converted = subset / 25.4
+                else:
+                    subset_converted = subset
+            
             if param_class == "temp":
                 # Isolate the exact 24-hour diurnal slice corresponding to selected day
                 start_hour = forecast_setting * 24
@@ -147,24 +167,14 @@ def get_model_data(target_model, map_type, forecast_setting):
                 if len(time_indices) == 0:
                     time_indices = [0]
                     
-                subset_day = subset.isel(**{time_dim: time_indices})
-                
-                # Convert Kelvin/Celsius to Fahrenheit before taking statistics to maintain grid precision
-                units = ds[temp_var].attrs.get('units', '').lower()
-                sample_val = float(np.atleast_1d(subset_day.values).flat[0])
-                if 'k' in units or sample_val > 150:
-                    temp_f = (subset_day - 273.15) * 1.8 + 32
-                elif 'c' in units or sample_val < 50:
-                    temp_f = subset_day * 1.8 + 32
-                else:
-                    temp_f = subset_day
+                subset_day = subset_converted.isel(**{time_dim: time_indices})
                 
                 # Take maximum (Highs) or minimum (Lows) dynamically across the 24h window
                 is_high = "High" in map_type
                 if is_high:
-                    max_temp_grid = temp_f.max(dim=time_dim).squeeze().load()
+                    max_temp_grid = subset_day.max(dim=time_dim).squeeze().load()
                 else:
-                    max_temp_grid = temp_f.min(dim=time_dim).squeeze().load()
+                    max_temp_grid = subset_day.min(dim=time_dim).squeeze().load()
                     
                 grid_temp = max_temp_grid.values
             else:
@@ -173,10 +183,11 @@ def get_model_data(target_model, map_type, forecast_setting):
                 if len(time_indices) == 0:
                     time_indices = [0]
                     
-                subset_rain = subset.isel(**{time_dim: time_indices})
+                subset_rain = subset_converted.isel(**{time_dim: time_indices})
                 
-                # Check if the variable is stored as intervals (1h or 3h chunks) rather than continuous accumulation
-                is_interval = any(acc in temp_var.lower() for acc in ["1_hour", "3_hour", "6_hour", "acc"])
+                # We only sum if the variable contains "1_hour" or "3_hour" and is NOT a mixed aggregate
+                v_lower = temp_var.lower()
+                is_interval = ("1_hour" in v_lower or "3_hour" in v_lower) and ("mixed" not in v_lower and "accumulation" not in v_lower)
                 
                 if is_interval:
                     # Sum all intervals up to target hour for true continuous accumulation
@@ -184,15 +195,8 @@ def get_model_data(target_model, map_type, forecast_setting):
                 else:
                     # Already stored as bulk accumulated values from start (F00), slice last element
                     subset_sliced = subset_rain.isel(**{time_dim: -1}).squeeze().load()
-                
-                # Convert mm to inches
-                units = ds[temp_var].attrs.get('units', '').lower()
-                if 'mm' in units:
-                    grid_data = subset_sliced / 25.4
-                else:
-                    grid_data = subset_sliced
                     
-                grid_temp = grid_data.values
+                grid_temp = subset_sliced.values
             
             # Match grid array positions to stations
             for city, (lat, lon) in MAP_LABELS_REDUCED.items():
