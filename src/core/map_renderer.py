@@ -182,16 +182,17 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
-        # Display the numerical values or risk code labels dynamically on top
-        val = map_label_values.get(city)
-        if val is not None and val != "" and val != "NOHZ":
-            ax_map.text(lon + shadow_offset_lon, lat + temp_offset + shadow_offset_lat, f"{val}{val_suffix}", color='black', alpha=0.5,
-                        fontsize=48, fontweight='bold', family=font_family,
-                        ha='center', va='center', transform=ccrs.PlateCarree(), zorder=6)
-            
-            ax_map.text(lon, lat + temp_offset, f"{val}{val_suffix}", color='white',
-                        fontsize=48, fontweight='bold', family=font_family,
-                        ha='center', va='center', transform=ccrs.PlateCarree(), zorder=7)
+        # Display the numerical values dynamically on top (only for gridded models, skipped on convective outlooks)
+        if not is_spc:
+            val = map_label_values.get(city)
+            if val is not None and val != "":
+                ax_map.text(lon + shadow_offset_lon, lat + temp_offset + shadow_offset_lat, f"{val}{val_suffix}", color='black', alpha=0.5,
+                            fontsize=48, fontweight='bold', family=font_family,
+                            ha='center', va='center', transform=ccrs.PlateCarree(), zorder=6)
+                
+                ax_map.text(lon, lat + temp_offset, f"{val}{val_suffix}", color='white',
+                            fontsize=48, fontweight='bold', family=font_family,
+                            ha='center', va='center', transform=ccrs.PlateCarree(), zorder=7)
             
     for spine in ax_map.spines.values():
         spine.set_visible(False)
