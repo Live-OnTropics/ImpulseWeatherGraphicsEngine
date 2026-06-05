@@ -55,7 +55,7 @@ def get_time_index(ds, time_dim, param_type, value):
 
 def get_model_data(target_model, map_type, forecast_setting):
     """
-    Queries THREDDS. Dynamically detects variable, coordinates (1D vs 2D), and 
+    Queries THREDDS. Dynamically detects variable, coordinate dimensions, and 
     time boundaries. Raises a ConnectionError if the network is offline.
     """
     grid_lon, grid_lat, grid_temp = None, None, None
@@ -99,56 +99,19 @@ def get_model_data(target_model, map_type, forecast_setting):
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
-                    if any(c in v_lower for c in coordinate_names) and 'temp' not in v_lower:
-                        continue
-                    if 'temperature' in v_lower or 'temp' in v_lower:
+                    if 'temperature' in v_lower or 'temp' in v_lower or 'precip' in v_lower:
                         temp_var = v
                         break
                         
             if temp_var is None:
                 raise ValueError("Variable is currently missing on the active server instance.")
 
-            # Identify coordinate variables
-            lat_var, lon_var = None, None
-            for v in ds.variables:
-                v_lower = v.lower()
-                if v_lower in ['latitude', 'lat']:
-                    lat_var = v
-                elif v_lower in ['longitude', 'lon']:
-                    lon_var = v
-                    
-            if lat_var is None or lon_var is None:
-                raise ValueError("Coordinates not found in the dataset schema.")
-                
-            lat_arr = ds[lat_var].values
-            lon_arr = ds[lon_var].values
-            if lon_arr.max() > 180:
-                if lon_arr.ndim == 1:
-                    lon_arr = lon_arr - 360
-                else:
-                    lon_arr = np.where(lon_arr > 180, lon_arr - 360, lon_arr)
-                    
-            # Set projection flag based on coord dimensions (1D regular vs 2D projected)
-            is_projected = ds[lat_var].ndim > 1
+            # Classify grid type based solely on active dimensions (No coordinate scanning needed)
             temp_dims = ds[temp_var].dims
+            is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
             # Crop spatial region
-            if not is_projected:
-                # Regular Latitude/Longitude Grid (GFS)
-                y_dim = ds[lat_var].dims[0]
-                x_dim = ds[lon_var].dims[0]
-                
-                lat_indices = np.where((lat_arr >= 24.0) & (lat_arr <= 38.0))[0]
-                lon_indices = np.where((lon_arr >= -112.44) & (lon_arr <= -87.56))[0]
-                
-                y_slice = slice(min(lat_indices), max(lat_indices) + 1)
-                x_slice = slice(min(lon_indices), max(lon_indices) + 1)
-                
-                subset = ds[temp_var].isel(**{y_dim: y_slice, x_dim: x_slice})
-                grid_lon = lon_arr[x_slice]
-                grid_lat = lat_arr[y_slice]
-                data_proj = ccrs.PlateCarree()
-            else:
+            if is_projected:
                 # Projected Grid (NAM, HRRR, NDFD)
                 # Resolve dimensions with flexible staggered indices (e.g. x_0, y_0)
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
@@ -166,6 +129,37 @@ def get_model_data(target_model, map_type, forecast_setting):
                 subset = ds[temp_var].sel(**{x_dim: x_slice, y_dim: y_slice})
                 grid_lon = subset[x_dim].values
                 grid_lat = subset[y_dim].values
+            else:
+                # Regular Latitude/Longitude Grid (GFS)
+                lat_var, lon_var = None, None
+                for v in ds.variables:
+                    v_lower = v.lower()
+                    if v_lower in ['latitude', 'lat']:
+                        lat_var = v
+                    elif v_lower in ['longitude', 'lon']:
+                        lon_var = v
+                        
+                if lat_var is None or lon_var is None:
+                    raise ValueError("Coordinates not found in the dataset schema.")
+                    
+                lat_arr = ds[lat_var].values
+                lon_arr = ds[lon_var].values
+                if lon_arr.max() > 180:
+                    lon_arr = lon_arr - 360
+                    
+                y_dim = ds[lat_var].dims[0]
+                x_dim = ds[lon_var].dims[0]
+                
+                lat_indices = np.where((lat_arr >= 24.0) & (lat_arr <= 38.0))[0]
+                lon_indices = np.where((lon_arr >= -112.44) & (lon_arr <= -87.56))[0]
+                
+                y_slice = slice(min(lat_indices), max(lat_indices) + 1)
+                x_slice = slice(min(lon_indices), max(lon_indices) + 1)
+                
+                subset = ds[temp_var].isel(**{y_dim: y_slice, x_dim: x_slice})
+                grid_lon = lon_arr[x_slice]
+                grid_lat = lat_arr[y_slice]
+                data_proj = ccrs.PlateCarree()
                 
             # Locate time index coordinates
             time_dim = [d for d in subset.dims if 'time' in d][0]
