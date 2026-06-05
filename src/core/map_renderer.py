@@ -158,8 +158,8 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                 map_box = box(region.extent[0]-3, region.extent[2]-3, region.extent[1]+3, region.extent[3]+3)
                 state_negative_mask = map_box.difference(state_geom)
                 
-                # Surround states blacked out at Z-Order 4.5
-                ax_map.add_geometries([state_negative_mask], crs=ccrs.PlateCarree(), facecolor='#151c24', edgecolor='none', zorder=4.5)
+                # Surround states blacked out at Z-Order 3.5 (underneath border layers)
+                ax_map.add_geometries([state_negative_mask], crs=ccrs.PlateCarree(), facecolor='#151c24', edgecolor='none', zorder=3.5)
                 # State base fill at Z-Order 1.5
                 ax_map.add_geometries([state_geom], crs=ccrs.PlateCarree(), facecolor=state_facecolor, edgecolor='none', zorder=1.5)
                 # Thick focus border outline at Z-Order 5.0
@@ -181,8 +181,10 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         except Exception as ex:
             print(f"Skipping Texas highlight border: {ex}")
             
-    ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
-    ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
+    # Draw background state, border, and coastline lines on top of the mask (Z-Order 4.2)
+    ax_map.add_feature(cfeature.COASTLINE.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4.2)
+    ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4.2)
+    ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4.2)
     
     # ----------------------------------------------------
     # ADAPTIVE ANNOTATIONS & TEXT OVERLAYS
