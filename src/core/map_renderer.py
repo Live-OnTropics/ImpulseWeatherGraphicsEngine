@@ -99,7 +99,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     state_facecolor = base_land_color if (is_vector or is_precip) else 'none'
     
     # ----------------------------------------------------
-    # DATA RENDER LAYER (GEO-POLYGONS VS GRIDDED PLOTS)
+    # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
     # ----------------------------------------------------
     if is_vector:
         features = grid_values if grid_values is not None else []
@@ -336,7 +336,8 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             # Discrete listed scale with boundary norm formatting
             cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
             cb.set_ticks(ticks)
-            tick_labels = [f"{t:.2f}" if t in [0.01, 0.10, 0.25, 0.50, 0.75] else f"{int(t)}" for t in ticks]
+            # Unified whole/decimal ticks formatter [input_file_2.py]
+            tick_labels = [f"{int(t)}" if t == int(t) else f"{t:.2f}" for t in ticks]
             cb.ax.set_xticklabels(tick_labels)
         else:
             cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
