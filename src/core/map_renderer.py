@@ -64,7 +64,6 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_map.set_position([0, 0, 1, 1])
     ax_map.set_extent(region.extent, crs=ccrs.PlateCarree())
     
-    # Mathematical linear normalization mapping (supports any arbitrary custom units/scale limits)
     vmin, vmax = product.vmin, product.vmax
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     color_range = float(vmax - vmin)
@@ -78,7 +77,6 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=levels, cmap=custom_cmap, norm=norm,
                          transform=data_proj, extend='both', zorder=1)
     
-    # Localized counties boundaries
     try:
         counties_shp = shapereader.natural_earth(resolution='10m', category='cultural', name='admin_2_counties')
         counties_reader = shapereader.Reader(counties_shp)
@@ -87,7 +85,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     except:
         pass
     
-    # Regional Clipping (renders negative space around state outlines if defined)
+    # Regional clipping configurations
     if hasattr(region, 'mask_state') and region.mask_state is not None:
         try:
             states_shp = shapereader.natural_earth(resolution='50m', category='cultural', name='admin_1_states_provinces')
@@ -107,13 +105,33 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                 ax_map.add_geometries([state_geom], crs=ccrs.PlateCarree(), facecolor='none', edgecolor='white', linewidth=1.5, zorder=5)
         except Exception as ex:
             print(f"Skipping geometry mask operations: {ex}")
+    else:
+        # If no mask is applied, still draw a crisp, bold border around Texas to preserve regional focus
+        try:
+            states_shp = shapereader.natural_earth(resolution='50m', category='cultural', name='admin_1_states_provinces')
+            reader = shapereader.Reader(states_shp)
+            tx_geom = None
+            for record in reader.records():
+                if record.attributes['name'] == 'Texas':
+                    tx_geom = record.geometry
+                    break
+            if tx_geom is not None:
+                ax_map.add_geometries([tx_geom], crs=ccrs.PlateCarree(), facecolor='none', edgecolor='white', linewidth=1.5, zorder=5)
+        except Exception as ex:
+            print(f"Skipping Texas highlight border: {ex}")
             
     ax_map.add_feature(cfeature.STATES.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
     ax_map.add_feature(cfeature.BORDERS.with_scale('50m'), facecolor='none', edgecolor='white', linewidth=0.5, alpha=0.2, zorder=4)
     
-    # Floating HUD Label placements
-    shadow_offset_lon = 0.04
-    shadow_offset_lat = -0.04
+    # Dynamic offsets (scaled proportionally to the region's dimensional span)
+    lon_span = region.extent[1] - region.extent[0]
+    lat_span = region.extent[3] - region.extent[2]
+    
+    temp_offset = lat_span * 0.016
+    city_offset = -lat_span * 0.023
+    
+    shadow_offset_lon = lon_span * 0.0016
+    shadow_offset_lat = -lat_span * 0.0028
     path_effects = [withStroke(linewidth=3, foreground='#151c24')]
     
     for city, (lat, lon) in region.cities.items():
@@ -121,15 +139,18 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         if val is None:
             continue
         
-        ax_map.text(lon + shadow_offset_lon, lat + 0.22 + shadow_offset_lat, f"{val}{val_suffix}", color='black', alpha=0.5,
+        # Temperature Text Drop Shadow
+        ax_map.text(lon + shadow_offset_lon, lat + temp_offset + shadow_offset_lat, f"{val}{val_suffix}", color='black', alpha=0.5,
                     fontsize=48, fontweight='bold', family=font_family,
                     ha='center', va='center', transform=ccrs.PlateCarree(), zorder=6)
         
-        ax_map.text(lon, lat + 0.22, f"{val}{val_suffix}", color='white',
+        # Temperature Text Main Layer
+        ax_map.text(lon, lat + temp_offset, f"{val}{val_suffix}", color='white',
                     fontsize=48, fontweight='bold', family=font_family,
                     ha='center', va='center', transform=ccrs.PlateCarree(), zorder=7)
         
-        ax_map.text(lon, lat - 0.32, city, color='white', fontsize=22, fontweight='bold',
+        # City Label Pill (centered cleanly below temperature metrics)
+        ax_map.text(lon, lat + city_offset, city, color='white', fontsize=22, fontweight='bold',
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
@@ -141,7 +162,6 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_header_card.axis('off')
     ax_header_card.patch.set_facecolor('none')
     
-    # Resolve brand logo (Checks context uploader or asset folder paths)
     active_logo_source = None
     if uploaded_logo_file is not None:
         active_logo_source = uploaded_logo_file
