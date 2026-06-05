@@ -1,4 +1,5 @@
 # src/config.py
+import numpy as np
 
 # Coordinates ONLY for the 10 curated cities (No hardcoded fake temperatures)
 MAP_LABELS_REDUCED = {
@@ -17,8 +18,6 @@ MAP_LABELS_REDUCED = {
 # Locked temperature scale endpoints (from -40°F to 120°F)
 TEMP_VMIN = -40
 TEMP_VMAX = 120
-
-# Color intervals mapped precisely to replicate input_file_5 with custom neon-sky blue transitions
 TEMP_COLOR_POINTS = [
     (-40, '#ff00ff'),  # Magenta
     (-30, '#8b008b'),  # Dark Magenta / Purple
@@ -38,13 +37,28 @@ TEMP_COLOR_POINTS = [
     (110, '#d47a85'),  # Dusty Rose
     (120, '#999999'),  # Grey
 ]
-
 TEMP_COLORBAR_TICKS = [-40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
 
-# Rain Accumulation scale boundaries (0.00 inches to 5.00+ inches)
+# Rain scale definitions matching input_file_8
 RAIN_VMIN = 0.0
-RAIN_VMAX = 5.0
-RAIN_COLORBAR_TICKS = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+RAIN_VMAX = 18.0
+RAIN_COLOR_POINTS = [
+    (0.0,   '#151c24', 0.0),  # 0 in: Fully transparent, matches map background
+    (0.005, '#ffeb3b', 0.5),  # 0.005 in: Fading semi-transparent yellow
+    (0.01,  '#ffeb3b', 1.0),  # 0.01 in: Fully opaque yellow
+    (0.5,   '#ff9800', 1.0),  # Orange
+    (1.0,   '#e53935', 1.0),  # Red
+    (2.0,   '#880e4f', 1.0),  # Dark Red / Magenta
+    (4.0,   '#7b1fa2', 1.0),  # Purple
+    (6.0,   '#e1bee7', 1.0),  # Pale Purple
+    (8.0,   '#80deea', 1.0),  # Soft Cyan
+    (10.0,  '#29b6f6', 1.0),  # Sky Blue
+    (12.0,  '#0288d1', 1.0),  # Medium Blue
+    (14.0,  '#006064', 1.0),  # Dark Blue/Teal
+    (16.0,  '#004d40', 1.0),  # Green-Teal
+    (18.0,  '#1b5e20', 1.0),  # Forest Green
+]
+RAIN_COLORBAR_TICKS = [0.01, 2, 4, 6, 8, 10, 12, 14, 16, 18]
 
 # Priority sequence list of Unidata THREDDS datasets
 MODEL_ENDPOINTS = [
