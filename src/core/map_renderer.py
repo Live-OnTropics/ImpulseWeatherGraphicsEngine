@@ -95,12 +95,11 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     is_vector = is_spc or is_wpc
     is_precip = "Precipitation" in map_type
     
-    # Render solid base fill for vector layers and precipitation to mask values under 0.01"
     base_land_color = '#1b2432'
     state_facecolor = base_land_color if (is_vector or is_precip) else 'none'
     
     # ----------------------------------------------------
-    # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
+    # DATA RENDER LAYER (GEO-POLYGONS VS GRIDDED PLOTS)
     # ----------------------------------------------------
     if is_vector:
         features = grid_values if grid_values is not None else []
@@ -127,8 +126,23 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                                       linewidth=0, alpha=0.6, zorder=2.0)
             except Exception as e:
                 print(f"Error rendering SPC shape: {e}")
+    elif is_precip:
+        # ----------------------------------------------------
+        # DISCRETE PRECIPITATION MAPPING (NO COLOR INTERPOLATION)
+        # ----------------------------------------------------
+        custom_cmap = mcolors.ListedColormap([color for val, color in product.color_points])
+        boundaries = product.colormap_ticks
+        norm = mcolors.BoundaryNorm(boundaries, ncolors=custom_cmap.N, extend='max')
+        ticks = boundaries
+        unit_label = product.unit_label
+        
+        # Sliced using boundaries exactly to draw solid un-interpolated categorical bands
+        cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=boundaries, cmap=custom_cmap, norm=norm,
+                             transform=data_proj, extend='max', zorder=1)
     else:
-        # Gridded numeric mappings
+        # ----------------------------------------------------
+        # CONTINUOUS TEMPERATURE CONTOUR MAPPING
+        # ----------------------------------------------------
         vmin, vmax = product.vmin, product.vmax
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         color_range = float(vmax - vmin)
@@ -138,10 +152,8 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         unit_label = product.unit_label
             
         levels = np.linspace(vmin, vmax, 161)
-        # Use 'max' extension for precipitation to leave values below 0.01" transparent
-        extend_mode = 'max' if is_precip else 'both'
         cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=levels, cmap=custom_cmap, norm=norm,
-                             transform=data_proj, extend=extend_mode, zorder=1)
+                             transform=data_proj, extend='both', zorder=1)
     
     # ----------------------------------------------------
     # GEOGRAPHIC LAYER DECORATIONS & HIGHLIGHTS
@@ -215,7 +227,6 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         if not is_vector:
             val = map_label_values.get(city)
             if val is not None and val != "":
-                # Format string nicely based on numeric types (floats for precip, integers for temperature)
                 val_str = f"{val:.2f}" if is_precip else f"{val}"
                 if is_precip and val < 0.01:
                     continue
@@ -320,16 +331,19 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     else:
         # Continuous numeric scale (Updated with formatting check for precipitation)
         cax = fig.add_axes([0.60, 0.89, 0.36, 0.015])
-        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
+        
+        if is_precip:
+            # Discrete listed scale with boundary norm formatting
+            cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
+            cb.set_ticks(ticks)
+            tick_labels = [f"{t:.2f}" if t in [0.01, 0.10, 0.25, 0.50, 0.75] else f"{int(t)}" for t in ticks]
+            cb.ax.set_xticklabels(tick_labels)
+        else:
+            cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
+            cb.set_ticks(ticks)
         
         fig.text(0.58, 0.897, unit_label, color='white', fontsize=12, fontweight='bold', family=font_family, va='center', ha='right', path_effects=path_effects)
         cb.ax.tick_params(labelsize=10, colors='white', labelbottom=True)
-        cb.set_ticks(ticks)
-        
-        # Display decimal labels cleanly for precipitation, integers for temperature
-        if is_precip:
-            tick_labels = [f"{t:.2f}" if t in [0.01, 0.10, 0.25, 0.50, 0.75] else f"{int(t)}" for t in ticks]
-            cb.ax.set_xticklabels(tick_labels)
         
         for label in cb.ax.get_xticklabels():
             label.set_path_effects(path_effects)
