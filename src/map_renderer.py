@@ -57,7 +57,7 @@ def setup_fonts():
     return font_name if font_name in available_fonts else 'sans-serif'
 
 
-def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj, map_type, forecast_setting_str, uploaded_logo_file=None):
+def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name, data_proj, map_type, forecast_setting_str, run_cycle_str, uploaded_logo_file=None):
     """Renders the 1080p canvas with coordinate dimensions, fonts, and clean HUD overlays."""
     font_family = setup_fonts()
     
@@ -214,8 +214,8 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     ax_header_card.text(title_x, 0.64, map_type, color='white', 
                         fontsize=36, fontweight='bold', family=font_family, va='center')
     
-    # Pill shaped model subtitle capsule colored #020617 with no outline (raised to 0.35)
-    ax_header_card.text(capsule_x, 0.35, f" {model_name.upper()} MODEL - {forecast_setting_str} OUTLOOK ", color='white', fontsize=20, 
+    # Pill shaped model subtitle capsule colored #020617 with no outline (raised to 0.35, displays run cycle dynamically)
+    ax_header_card.text(capsule_x, 0.35, f" {model_name.upper()}{run_cycle_str} - {forecast_setting_str} OUTLOOK ", color='white', fontsize=20, 
                         fontweight='bold', family=font_family, va='center',
                         bbox=dict(boxstyle="round,pad=0.35", fc="#020617", ec="none"))
 
