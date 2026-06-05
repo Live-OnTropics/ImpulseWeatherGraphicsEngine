@@ -170,14 +170,15 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             subset = subset.squeeze()
             units = ds[temp_var].attrs.get('units', '')
             
+            # Robust mathematical units parsing, preventing exponent matching conflicts (such as kg.m-2) [input_file_5.py]
             if "Precipitation" in map_type:
                 units_lower = units.lower()
-                if 'inch' in units_lower or 'in' == units_lower:
-                    subset_converted = subset
-                elif 'm' in units_lower and 'mm' not in units_lower:
-                    subset_converted = subset * 39.3701  # Meters to inches
-                elif 'mm' in units_lower or 'kg' in units_lower:
+                if 'mm' in units_lower or 'kg' in units_lower:
                     subset_converted = subset / 25.4  # Millimeters or kg/m^2 to inches
+                elif 'meter' in units_lower or units_lower == 'm':
+                    subset_converted = subset * 39.3701  # Meters to inches
+                elif 'inch' in units_lower or 'in' in units_lower:
+                    subset_converted = subset
                 else:
                     max_raw = float(subset.max().values)
                     if max_raw < 0.5 and max_raw > 0.001:
@@ -193,10 +194,12 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
+                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 time_indices = [np.abs(pd_times_utc - target_time_utc).argmin()]
             else:
+                # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
                 target_tz = zoneinfo.ZoneInfo(region.timezone_str)
                 now_local = datetime.datetime.now(target_tz)
@@ -219,6 +222,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 else:
                     val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 
+                # Render floats for precipitation, integers for temperature
                 map_label_temps[city] = round(val, 2) if "Precipitation" in map_type else int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
