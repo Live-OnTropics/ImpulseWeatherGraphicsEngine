@@ -49,10 +49,22 @@ class PrecipitationProduct(BaseProduct):
 
     def process_units(self, subset_data, raw_unit_string: str):
         units = raw_unit_string.lower()
-        # Convert mm, m, or kg/m^2 to inches
-        if 'm' in units and 'mm' not in units:
-            return subset_data * 39.3701
-        return subset_data / 25.4
+        if 'mm' in units or 'kg' in units:
+            return subset_data / 25.4  # Millimeters or kg/m^2 to inches
+        elif 'meter' in units or units == 'm':
+            return subset_data * 39.3701  # Meters to inches
+        elif 'inch' in units or 'in' in units:
+            return subset_data
+        else:
+            max_raw = float(subset_data.max().values)
+            if max_raw < 0.5 and max_raw > 0.001:
+                return subset_data * 39.3701  # Assumed meters
+            elif max_raw > 1.0 and max_raw < 500.0:
+                return subset_data / 25.4  # Assumed millimeters
+            return subset_data
 
     def aggregate_time(self, subset_day, time_dim: str, map_type: str):
+        # If the time slice contains multiple steps (for HRRR/NAM/RAP), sum them up to show accumulated totals [input_file_5.py]
+        if time_dim in subset_day.dims and subset_day[time_dim].size > 1:
+            return subset_day.sum(dim=time_dim).load()
         return subset_day.squeeze().load()
