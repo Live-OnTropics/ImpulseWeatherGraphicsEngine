@@ -86,7 +86,7 @@ def get_model_data(target_model, map_type, forecast_setting):
         try:
             ds = xr.open_dataset(url)
             
-            # 1. Discover temperature/precipitation variable robustly
+            # Discover temperature/precipitation variable robustly
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
             temp_candidates = [
@@ -116,19 +116,19 @@ def get_model_data(target_model, map_type, forecast_setting):
             if temp_var is None:
                 raise ValueError(f"No matching temperature variables found in the {name} schema.")
 
-            # 2. Parse CF metadata on the SPECIFIC data variable only (highly stable and thread-safe!)
+            # 1. Parse CF metadata on the SPECIFIC data variable only (highly stable and thread-safe!)
             ds_var = ds[temp_var].metpy.parse_cf()
 
-            # 3. Handle multidimensional time dimensions (e.g. reftime)
+            # 2. Handle multidimensional time dimensions (e.g. reftime)
             reftime_dims = [d for d in ds_var.dims if 'reftime' in d.lower()]
             if reftime_dims:
                 ds_var = ds_var.isel(**{reftime_dims[0]: -1})
 
-            # 4. Classify grid type based solely on active dimensions of the variable
+            # 3. Classify grid type based solely on active dimensions of the variable
             temp_dims = ds_var.dims
             is_projected = any('y' in d.lower() for d in temp_dims) and any('x' in d.lower() for d in temp_dims)
 
-            # 5. Crop spatial region
+            # 4. Crop spatial region
             if is_projected:
                 # Projected Grid (NAM, HRRR, NDFD)
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
@@ -177,10 +177,10 @@ def get_model_data(target_model, map_type, forecast_setting):
                 grid_lat = lat_arr[y_slice]
                 data_proj = ccrs.PlateCarree()
                 
-            # 6. Locate time index coordinates
+            # 5. Locate time index coordinates
             time_dim = [d for d in subset.dims if 'time' in d][0]
             
-            # 7. Deduplicate time dimension (Crucial to prevent summing overlapping duplicate forecasts!)
+            # 6. Deduplicate time dimension (Crucial to prevent summing overlapping duplicate forecasts!)
             try:
                 time_coord = subset[time_dim]
                 if len(time_coord) != len(np.unique(time_coord)):
