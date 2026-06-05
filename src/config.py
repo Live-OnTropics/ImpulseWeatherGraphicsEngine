@@ -1,7 +1,7 @@
 # src/config.py
 import numpy as np
 
-# Coordinates ONLY for the 10 curated cities (No hardcoded fake temperatures)
+# Coordinates ONLY for the 10 curated cities
 MAP_LABELS_REDUCED = {
     'AMARILLO': (35.2219, -101.8313),
     'ODESSA-MIDLAND': (31.9973, -102.0779),  # Combined Odessa-Midland hub
@@ -39,24 +39,32 @@ TEMP_COLOR_POINTS = [
 ]
 TEMP_COLORBAR_TICKS = [-40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
 
-# Rain scale definitions matching input_file_8
+# Rain scale boundaries (0.00 inches to 18.00 inches)
 RAIN_VMIN = 0.0
 RAIN_VMAX = 18.0
+
+# Custom Rain Scale matching input_file_8 and your exact color specifications
 RAIN_COLOR_POINTS = [
-    (0.0,   '#151c24', 0.0),  # 0 in: Fully transparent, matches map background
-    (0.005, '#ffeb3b', 0.5),  # 0.005 in: Fading semi-transparent yellow
-    (0.01,  '#ffeb3b', 1.0),  # 0.01 in: Fully opaque yellow
-    (0.5,   '#ff9800', 1.0),  # Orange
-    (1.0,   '#e53935', 1.0),  # Red
-    (2.0,   '#880e4f', 1.0),  # Dark Red / Magenta
-    (4.0,   '#7b1fa2', 1.0),  # Purple
-    (6.0,   '#e1bee7', 1.0),  # Pale Purple
-    (8.0,   '#80deea', 1.0),  # Soft Cyan
-    (10.0,  '#29b6f6', 1.0),  # Sky Blue
-    (12.0,  '#0288d1', 1.0),  # Medium Blue
-    (14.0,  '#006064', 1.0),  # Dark Blue/Teal
-    (16.0,  '#004d40', 1.0),  # Green-Teal
-    (18.0,  '#1b5e20', 1.0),  # Forest Green
+    (0.0,   '#151c24', 0.0),  # 0 in: Transparent (matches background)
+    (0.005, '#d3d3d3', 0.5),  # Fades in
+    (0.01,  '#d3d3d3', 1.0),  # 0.01 in: Light Gray
+    (0.09,  '#808080', 1.0),  # 0.09 in: Gray
+    (0.10,  '#90ee90', 1.0),  # 0.10 in: Light Green
+    (0.49,  '#1b6e1b', 1.0),  # 0.49 in: Darker Green
+    (0.50,  '#1d70b8', 1.0),  # 0.50 in: Dark Sky Blue
+    (0.99,  '#87cefa', 1.0),  # 0.99 in: Light Sky Blue
+    (1.00,  '#ffd300', 1.0),  # 1.00 in: Yellow
+    (1.99,  '#ffaa00', 1.0),  # 1.99 in: Orangeish Yellow
+    (2.00,  '#f37021', 1.0),  # 2.00 in: Orange
+    (3.99,  '#800010', 1.0),  # 3.99 in: Dark Red
+    (4.00,  '#d81b60', 1.0),  # 4.00 in: Dark Pink/Red
+    (6.0,   '#e1bee7', 1.0),  # 6.0 in: Pale Purple
+    (8.0,   '#80deea', 1.0),  # 8.0 in: Soft Cyan
+    (10.0,  '#29b6f6', 1.0),  # 10.0 in: Sky Blue
+    (12.0,  '#0288d1', 1.0),  # 12.0 in: Medium Blue
+    (14.0,  '#006064', 1.0),  # 14.0 in: Dark Blue/Teal
+    (16.0,  '#004d40', 1.0),  # 16.0 in: Green-Teal
+    (18.0,  '#1b5e20', 1.0),  # 18.0 in: Forest Green
 ]
 RAIN_COLORBAR_TICKS = [0.01, 2, 4, 6, 8, 10, 12, 14, 16, 18]
 
@@ -67,27 +75,27 @@ MODEL_ENDPOINTS = [
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/NDFD/NWS/CONUS/CONDUIT/Best",
         "highs_candidates": ["maximum_temperature_height_above_ground_Mixed_intervals_Maximum", "maximum_temperature_height_above_ground"],
         "lows_candidates": ["minimum_temperature_height_above_ground_Mixed_intervals_Minimum", "minimum_temperature_height_above_ground"],
-        "rain_candidates": ["total_precipitation_surface_6_Hour_Accumulation", "total_precipitation_surface"]
+        "rain_candidates": ["total_precipitation_surface_accumulation", "total_precipitation_surface", "total_precipitation_surface_6_hour_accumulation"]
     },
     {
         "name": "HRRR (2.5km)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/HRRR/CONUS_2p5km/Best",
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
-        "rain_candidates": ["total_precipitation_surface_1_Hour_Accumulation", "total_precipitation_surface"]
+        "rain_candidates": ["total_precipitation_surface_accumulation", "total_precipitation_surface", "total_precipitation_surface_1_hour_accumulation"]
     },
     {
         "name": "NAM (12km)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/NAM/CONUS_12km/Best",
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
-        "rain_candidates": ["total_precipitation_surface_3_Hour_Accumulation", "total_precipitation_surface"]
+        "rain_candidates": ["total_precipitation_surface_accumulation", "total_precipitation_surface", "total_precipitation_surface_3_hour_accumulation"]
     },
     {
         "name": "GFS (0.25deg)",
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/GFS/Global_0p25deg/Best",
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
-        "rain_candidates": ["total_precipitation_surface_Mixed_intervals_Accumulation", "total_precipitation_surface"]
+        "rain_candidates": ["total_precipitation_surface_accumulation", "total_precipitation_surface", "total_precipitation_surface_mixed_intervals_accumulation"]
     }
 ]
