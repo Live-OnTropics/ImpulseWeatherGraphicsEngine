@@ -45,25 +45,17 @@ if __name__ == '__main__':
             index=3  # Default GFS
         )
         
-        # 2. Map Type Selection
+        # 2. Map Type Selection (Temperatures Only)
         selected_map_type = st.sidebar.selectbox(
             "Select Map Type:",
-            ["Forecast High Temperatures", "Forecast Low Temperatures", "Rain Accumulation"]
+            ["Forecast High Temperatures", "Forecast Low Temperatures"]
         )
         
-        # 3. Dynamic Setting Configuration
-        if "Temperatures" in selected_map_type:
-            # Map Day selections to indices
-            day_mapping = {"Today": 0, "Tomorrow": 1, "Day 3": 2, "Day 4": 3, "Day 5": 4}
-            selected_day_label = st.sidebar.selectbox("Select Forecast Day:", list(day_mapping.keys()))
-            forecast_setting = day_mapping[selected_day_label]
-            forecast_setting_str = selected_day_label.upper()
-        else:
-            # Map Rain Accumulation hour windows
-            rain_mapping = {"24 Hour Rain": 24, "48 Hour Rain": 48, "72 Hour Rain": 72}
-            selected_rain_label = st.sidebar.selectbox("Select Accumulation Window:", list(rain_mapping.keys()))
-            forecast_setting = rain_mapping[selected_rain_label]
-            forecast_setting_str = selected_rain_label.upper()
+        # 3. Forecast Day Selection
+        day_mapping = {"Today": 0, "Tomorrow": 1, "Day 3": 2, "Day 4": 3, "Day 5": 4}
+        selected_day_label = st.sidebar.selectbox("Select Forecast Day:", list(day_mapping.keys()))
+        forecast_setting = day_mapping[selected_day_label]
+        forecast_setting_str = selected_day_label.upper()
             
         # 4. Brand Logo Uploader
         uploaded_logo = st.sidebar.file_uploader("Upload Brand Logo (Optional):", type=["png"])
@@ -89,6 +81,7 @@ if __name__ == '__main__':
                         )
                 else:
                     st.error(f"Failed to generate map: {result}")
+            st.write(f"Refreshed: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     else:
         # Local terminal execution mode
         print("Executing local weather generation pipeline...")
