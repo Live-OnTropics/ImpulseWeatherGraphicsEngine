@@ -11,7 +11,7 @@ from matplotlib import font_manager
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.io import shapereader
-from src.config import TEMP_COLOR_POINTS, TEMP_COLORBAR_TICKS, RAIN_COLORBAR_TICKS, TEMP_VMIN, TEMP_VMAX, RAIN_VMIN, RAIN_VMAX, MAP_LABELS_REDUCED
+from src.config import TEMP_COLOR_POINTS, TEMP_COLORBAR_TICKS, RAIN_COLOR_POINTS, RAIN_COLORBAR_TICKS, TEMP_VMIN, TEMP_VMAX, RAIN_VMIN, RAIN_VMAX, MAP_LABELS_REDUCED
 
 def setup_fonts():
     """Downloads Space Grotesk from updated repositories and registers it with matplotlib."""
@@ -76,8 +76,15 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     
     if is_rain:
         vmin, vmax = RAIN_VMIN, RAIN_VMAX
+        # Custom rain colormap with opacity gradient matching input_file_8
+        rgba_list = []
+        for val, hex_color, alpha in RAIN_COLOR_POINTS:
+            pos = val / 18.0
+            rgb = mcolors.to_rgb(hex_color)
+            rgba = (rgb[0], rgb[1], rgb[2], alpha)
+            rgba_list.append((pos, rgba))
+        custom_cmap = mcolors.LinearSegmentedColormap.from_list('impulse_rain_scale', rgba_list)
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        custom_cmap = plt.cm.YlGnBu  # Industry-standard precipitation colormap
         ticks = RAIN_COLORBAR_TICKS
         unit_label = "inches"
         val_suffix = '"'
@@ -94,7 +101,7 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     cf = ax_map.contourf(grid_lon, grid_lat, grid_temp, levels=levels, cmap=custom_cmap, norm=norm,
                          transform=data_proj, extend='both', zorder=1)
     
-    # County outlines (Prominent visibility)
+    # County outlines (linewidth and alpha increased for prominent visibility)
     try:
         counties_shp = shapereader.natural_earth(resolution='10m', category='cultural', name='admin_2_counties')
         counties_reader = shapereader.Reader(counties_shp)
@@ -155,7 +162,7 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     # ------------------------------------------
     # CLEAN FLOATING HUD HEADER (TOP LEFT)
     # ------------------------------------------
-    ax_header_card = fig.add_axes([0.105, 0.82, 0.45, 0.14])
+    ax_header_card = fig.add_axes([0.095, 0.82, 0.45, 0.14])
     ax_header_card.axis('off')
     
     # Reconstructed Blue Circle Badge with White Outline (No Stretching)
@@ -175,7 +182,7 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
             left, top, right, bottom = int(width * 0.10), int(height * 0.20), int(width * 0.90), int(height * 0.80)
             cropped_img = img.crop((left, top, right, bottom))
             
-            # Sub-axes for the circular logo badge (exact square coordinates, 13% smaller)
+            # Sub-axes for the circular logo badge (exact square coordinates, made 13% smaller)
             ax_logo = fig.add_axes([0.02, 0.825, 0.065, 0.11555], facecolor='none')
             ax_logo.axis('off')
             ax_logo.set_aspect('equal')
