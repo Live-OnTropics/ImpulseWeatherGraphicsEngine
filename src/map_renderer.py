@@ -162,8 +162,9 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
     # ------------------------------------------
     # CLEAN FLOATING HUD HEADER (TOP LEFT)
     # ------------------------------------------
-    ax_header_card = fig.add_axes([0.095, 0.82, 0.45, 0.14])
+    ax_header_card = fig.add_axes([0.105, 0.82, 0.45, 0.14])
     ax_header_card.axis('off')
+    ax_header_card.patch.set_facecolor('none')  # Corrected: Explicitly transparent card background
     
     # Reconstructed Blue Circle Badge with White Outline (No Stretching)
     logo_drawn = False
@@ -196,16 +197,23 @@ def render_texas_map(grid_lon, grid_lat, grid_temp, map_label_temps, model_name,
             # Draw logo inside axes and clip to a perfect circular mask to prevent stretching
             img_w, img_h = cropped_img.size
             aspect = img_w / img_h
+            
+            # Safe 0.65 scale constraint to fit logo comfortably inside badge circle boundaries
+            scale = 0.65
             if aspect > 1.0:
-                x_start, x_end = 0.0, 1.0
-                y_h = 1.0 / aspect
-                y_start = (1.0 - y_h) / 2.0
-                y_end = y_start + y_h
+                x_w = scale
+                x_start = 0.5 - x_w / 2.0
+                x_end = 0.5 + x_w / 2.0
+                y_h = scale / aspect
+                y_start = 0.5 - y_h / 2.0
+                y_end = 0.5 + y_h / 2.0
             else:
-                y_start, y_end = 0.0, 1.0
-                x_w = aspect
-                x_start = (1.0 - x_w) / 2.0
-                x_end = x_start + x_w
+                y_h = scale
+                y_start = 0.5 - y_h / 2.0
+                y_end = 0.5 + y_h / 2.0
+                x_w = scale * aspect
+                x_start = 0.5 - x_w / 2.0
+                x_end = 0.5 + x_w / 2.0
                 
             im = ax_logo.imshow(cropped_img, extent=[x_start, x_end, y_start, y_end], aspect='equal', zorder=2)
             clip_circle = Circle((0.5, 0.5), 0.44, transform=ax_logo.transAxes)
