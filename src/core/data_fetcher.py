@@ -48,7 +48,8 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             
             for candidate in candidates:
                 for v in ds.variables:
-                    if candidate in v.lower():
+                    # Converted both candidate and dataset variable to lowercase to prevent OPeNDAP mismatching
+                    if candidate.lower() in v.lower():
                         temp_var = v
                         break
                 if temp_var is not None:
@@ -77,7 +78,8 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 if any(k in coord.lower() for k in ['reftime', 'ref_time', 'reference_time']):
                     reftime_coord_name = coord
                     break
-                    
+            
+            utc_ref = None
             if reftime_coord_name is not None:
                 try:
                     ref_val = ds[reftime_coord_name].values
@@ -160,18 +162,39 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             
             subset = subset.squeeze()
             units = ds[temp_var].attrs.get('units', '')
-            subset_converted = product.process_units(subset, units)
+            
+            # Metadata-backed unit parser to process millimeters/meters precisely [input_file_5.py]
+            if "Precipitation" in map_type:
+                units_lower = units.lower()
+                if 'inch' in units_lower or 'in' == units_lower:
+                    subset_converted = subset
+                elif 'm' in units_lower and 'mm' not in units_lower:
+                    subset_converted = subset * 39.3701  # Meters to inches
+                elif 'mm' in units_lower or 'kg' in units_lower:
+                    subset_converted = subset / 25.4  # Millimeters or kg/m^2 to inches
+                else:
+                    # Deep-layer statistical validation in case metadata fails
+                    max_raw = float(subset.max().values)
+                    if max_raw < 0.5 and max_raw > 0.001:
+                        subset_converted = subset * 39.3701  # Assumed meters
+                    elif max_raw > 1.0 and max_raw < 500.0:
+                        subset_converted = subset / 25.4  # Assumed millimeters
+                    else:
+                        subset_converted = subset
+            else:
+                subset_converted = product.process_units(subset, units)
             
             pd_times = pd.to_datetime(subset[time_dim].values)
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
-            pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
             
             if "Precipitation" in map_type:
-                # Accumulate values up to the selected forecast hour index
-                target_time = pd_times_local[0] + datetime.timedelta(hours=int(forecast_setting))
-                time_indices = [np.abs(pd_times_local - target_time).argmin()]
+                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
+                base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
+                target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
+                time_indices = [np.abs(pd_times_utc - target_time_utc).argmin()]
             else:
-                # Traditional temperature date boundary mapping
+                # Traditional temperature calendar indexing
+                pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
                 target_tz = zoneinfo.ZoneInfo(region.timezone_str)
                 now_local = datetime.datetime.now(target_tz)
                 today_date = now_local.date()
@@ -193,7 +216,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 else:
                     val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 
-                # Render floats for precipitation, integers for temperature
                 map_label_temps[city] = round(val, 2) if "Precipitation" in map_type else int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
