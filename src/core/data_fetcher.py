@@ -67,25 +67,26 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 if temp_var is not None:
                     break
                     
-            # 2. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation) [input_file_5.py]
+            # 2. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation)
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
                     if any(c in v_lower for c in coordinate_names):
                         continue
                     if is_precip:
-                        # Restricts fallback to variables containing precip or apcp (no temperatures allowed) [input_file_5.py]
                         if 'precip' in v_lower or 'apcp' in v_lower or 'prate' in v_lower:
                             temp_var = v
                             break
                     else:
-                        # Restricts fallback to temperature variables [input_file_5.py]
                         if 'temperature' in v_lower or 'temp' in v_lower:
                             temp_var = v
                             break
                         
             if temp_var is None:
                 raise ValueError(f"No matching variables found in the {name} schema.")
+
+            # Identify if the chosen variable is an hourly step or a mixed-interval cumulative bucket [input_file_5.py]
+            is_hourly_accumulation = "1_hour" in temp_var.lower()
 
             reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
             if reftime_dims:
@@ -190,40 +191,44 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
                 target_hour = int(forecast_setting)
                 
-                # Compute hours since initialization for each forecast timestep
                 hours_since_ref = np.array([(t - base_ref).total_seconds() / 3600.0 for t in pd_times_utc])
                 
-                is_gfs_or_ndfd = any(k in name.lower() for k in ["gfs", "ndfd"])
-                
-                if is_gfs_or_ndfd:
-                    # GFS/NDFD mixed-intervals logic (isolates non-overlapping contiguous steps)
-                    selected_indices = []
-                    if target_hour % 6 == 0:
-                        for i, h in enumerate(hours_since_ref):
-                            h_rounded = int(round(h))
-                            if h_rounded > 0 and h_rounded <= target_hour and h_rounded % 6 == 0:
-                                selected_indices.append(i)
-                    else:
-                        for i, h in enumerate(hours_since_ref):
-                            h_rounded = int(round(h))
-                            if h_rounded > 0 and h_rounded < target_hour and h_rounded % 6 == 0:
-                                selected_indices.append(i)
-                            if h_rounded == target_hour:
-                                selected_indices.append(i)
-                                
-                    if not selected_indices:
-                        selected_indices = [target_idx]
-                    time_indices = sorted(list(set(selected_indices)))
-                else:
-                    # HRRR, RAP, NAM 3km, and NAM 12km (contiguous hourly/3-hourly steps)
-                    # Sum all consecutive steps from 0 up to target_idx
+                if is_hourly_accumulation:
+                    # HRRR, RAP, NAM 3km (contiguous 1-hour intervals summed up) [input_file_5.py]
                     time_indices = slice(0, target_idx + 1)
+                else:
+                    # GFS, NDFD, NAM 12km (mixed-interval running total buckets) [input_file_5.py]
+                    # Parse Climate & Forecast compliant bounds metadata to find the single 0.0 -> H interval [input_file_5.py]
+                    bounds_var_name = ds[time_dim].attrs.get('bounds')
+                    exact_target_match = []
+                    
+                    if bounds_var_name and bounds_var_name in ds.variables:
+                        try:
+                            bounds_arr = ds[bounds_var_name].values
+                            for i in range(len(bounds_arr)):
+                                start_h = float(bounds_arr[i, 0])
+                                end_h = float(bounds_arr[i, 1])
+                                if abs(start_h) < 0.01 and abs(end_h - target_hour) < 0.1:
+                                    exact_target_match.append(i)
+                                    break
+                        except Exception as e:
+                            print(f"Skipping early bounds coordinate parsing: {e}")
+                            
+                    if not exact_target_match:
+                        # Fallback to standard hour matching
+                        matches = np.where(np.round(hours_since_ref) == target_hour)[0]
+                        if len(matches) > 0:
+                            exact_target_match = [matches[0]]
+                            
+                    if len(exact_target_match) > 0:
+                        time_indices = [exact_target_match[0]]
+                    else:
+                        time_indices = [target_idx]
             else:
                 # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
