@@ -67,17 +67,19 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 if temp_var is not None:
                     break
                     
-            # 2. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation)
+            # 2. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation) [input_file_5.py]
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
                     if any(c in v_lower for c in coordinate_names):
                         continue
                     if is_precip:
+                        # Restricts fallback to variables containing precip or apcp (no temperatures allowed) [input_file_5.py]
                         if 'precip' in v_lower or 'apcp' in v_lower or 'prate' in v_lower:
                             temp_var = v
                             break
                     else:
+                        # Restricts fallback to temperature variables [input_file_5.py]
                         if 'temperature' in v_lower or 'temp' in v_lower:
                             temp_var = v
                             break
@@ -200,7 +202,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 is_gfs_or_ndfd = any(k in name.lower() for k in ["gfs", "ndfd"])
                 
                 if is_gfs_or_ndfd:
-                    # GFS/NDFD mixed-intervals logic (isolates and sums non-overlapping contiguous steps) [input_file_5.py]
+                    # GFS/NDFD mixed-intervals logic (isolates non-overlapping contiguous steps)
                     selected_indices = []
                     if target_hour % 6 == 0:
                         for i, h in enumerate(hours_since_ref):
@@ -219,7 +221,8 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                         selected_indices = [target_idx]
                     time_indices = sorted(list(set(selected_indices)))
                 else:
-                    # HRRR, RAP, NAM 3km, and NAM 12km (sum contiguous hourly/3-hourly steps) [input_file_5.py]
+                    # HRRR, RAP, NAM 3km, and NAM 12km (contiguous hourly/3-hourly steps)
+                    # Sum all consecutive steps from 0 up to target_idx
                     time_indices = slice(0, target_idx + 1)
             else:
                 # Traditional temperature calendar indexing
