@@ -167,7 +167,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             except Exception as e:
                 print(f"Time deduplication skipped: {e}")
             
-            # Squeeze out only non-time singleton dimensions to preserve the time dimension for aggregation [input_file_5.py]
+            # Squeeze out only non-time singleton dimensions to preserve the time dimension for aggregation
             squeeze_dims = [d for d in subset.dims if 'time' not in d.lower() and subset[d].size == 1]
             if squeeze_dims:
                 subset = subset.squeeze(dim=squeeze_dims)
@@ -227,6 +227,11 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             subset_day = subset_converted.isel(**{time_dim: time_indices})
             max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
             grid_temp = max_temp_grid.values
+            
+            # If latitudes are descending, reverse them and the grid values to be strictly increasing [input_file_5.py]
+            if not is_projected and len(grid_lat) > 1 and grid_lat[1] < grid_lat[0]:
+                grid_lat = grid_lat[::-1]
+                grid_temp = grid_temp[::-1, :]
             
             for city, (lat, lon) in region.cities.items():
                 if is_projected:
