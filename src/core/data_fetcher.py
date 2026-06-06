@@ -42,7 +42,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
         try:
             ds = xr.open_dataset(url)
             
-            # Wrap longitudes and sort strictly increasing FIRST to prevent sortby metadata drops
+            # Wrap longitudes from [0, 360] to [-180, 180] and sort them strictly increasing at the dataset level
             for coord in list(ds.coords) + list(ds.variables):
                 if coord.lower() in ['lon', 'longitude']:
                     try:
@@ -57,6 +57,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             ds = ds.metpy.parse_cf()
             
             is_precip = "Precipitation" in map_type
+            is_radar = "Future Radar" in map_type
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
             
@@ -79,6 +80,10 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                         if 'precip' in v_lower or 'apcp' in v_lower or 'prate' in v_lower:
                             temp_var = v
                             break
+                    elif is_radar:
+                        if 'reflectivity' in v_lower or 'refc' in v_lower:
+                            temp_var = v
+                            break
                     else:
                         if 'temperature' in v_lower or 'temp' in v_lower:
                             temp_var = v
@@ -86,6 +91,13 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                         
             if temp_var is None:
                 raise ValueError(f"No matching variables found in the {name} schema.")
+
+            # Identify if the chosen variable is an hourly step or a mixed-interval cumulative bucket
+            is_hourly_accumulation = "1_hour" in temp_var.lower()
+            
+            # Enforce hourly override immediately at initialization for GFS model layers
+            if is_precip and "gfs" in name.lower():
+                is_hourly_accumulation = False
 
             reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
             if reftime_dims:
@@ -190,15 +202,20 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Find the index of the run initialization start time (F00)
+                # Sum intervals only from active initialization index
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 start_idx = np.abs(pd_times_utc - base_ref).argmin()
                 
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
                 
-                # Sum consecutive hourly steps from active initialization index directly
                 time_indices = slice(start_idx, target_idx + 1)
+            elif "Future Radar" in map_type:
+                # Extract single forecast frame matching the exact selected forecast hour [input_file_5.py]
+                base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
+                target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
+                target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
+                time_indices = [target_idx]
             else:
                 # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
@@ -251,7 +268,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                         val = float(subset_converted.isel(**{time_dim: target_idx}).values.flatten()[0])
                 
                 # Render floats for precipitation, integers for temperature
-                map_label_temps[city] = round(val, 2) if "Precipitation" in map_type else int(round(val))
+                map_label_temps[city] = round(val, 2) if (is_precip or is_radar) else int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
             return grid_lon, grid_lat, grid_temp, map_label_temps, name, data_proj, run_cycle_str
