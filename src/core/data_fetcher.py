@@ -43,6 +43,17 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             ds = xr.open_dataset(url)
             ds = ds.metpy.parse_cf()
             
+            # Wrap longitudes from [0, 360] to [-180, 180] and sort them strictly increasing at the dataset level
+            for coord in list(ds.coords) + list(ds.variables):
+                if coord.lower() in ['lon', 'longitude']:
+                    try:
+                        if ds[coord].max() > 180:
+                            ds = ds.assign_coords(**{coord: (((ds[coord] + 180) % 360) - 180)})
+                            ds = ds.sortby(coord)
+                        break
+                    except Exception as e:
+                        print(f"Skipping early longitude wrapping: {e}")
+            
             is_precip = "Precipitation" in map_type
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
@@ -138,9 +149,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     
                 lat_arr = ds[lat_var].values
                 lon_arr = ds[lon_var].values
-                if lon_arr.max() > 180:
-                    lon_arr = lon_arr - 360
-                    
+                
                 y_dim = ds[lat_var].dims[0]
                 x_dim = ds[lon_var].dims[0]
                 
@@ -228,7 +237,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
             grid_temp = max_temp_grid.values
             
-            # If latitudes are descending, reverse them and the grid values to be strictly increasing [input_file_5.py]
+            # If latitudes are descending, reverse them and the grid values to be strictly increasing
             if not is_projected and len(grid_lat) > 1 and grid_lat[1] < grid_lat[0]:
                 grid_lat = grid_lat[::-1]
                 grid_temp = grid_temp[::-1, :]
