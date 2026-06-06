@@ -145,7 +145,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                              transform=data_proj, extend='max', zorder=1.8)
     else:
         # ----------------------------------------------------
-        # CONTINUOUS TEMPERATURE & REFLECTIVITY CONTOUR MAPPING [input_file_2.py]
+        # CONTINUOUS TEMPERATURE & REFLECTIVITY CONTOUR MAPPING
         # ----------------------------------------------------
         vmin, vmax = product.vmin, product.vmax
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
@@ -230,7 +230,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
-        # Display the numerical values dynamically on top (only for gridded models, skipped on convective outlooks & radar) [input_file_2.py]
+        # Display the numerical values dynamically on top (only for gridded models, skipped on convective outlooks & radar)
         if not (is_vector or is_radar):
             val = map_label_values.get(city)
             if val is not None and val != "":
@@ -305,9 +305,13 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     ax_header_card.text(title_x, 0.64, map_type, color='white', 
                         fontsize=36, fontweight='bold', family=font_family, va='center')
     
-    ax_header_card.text(capsule_x, 0.35, f" {model_name.upper()}{run_cycle_str} - {forecast_setting_str} OUTLOOK ", color='white', fontsize=20, 
+    # Construct a clean multi-row label to reduce horizontal width [input_file_2.py]
+    capsule_text = f" {model_name.upper()}{run_cycle_str}\n {forecast_setting_str} "
+    
+    # Adjusted the vertical position of the capsule to 0.24 for balanced spacing under the main title [input_file_2.py]
+    ax_header_card.text(capsule_x, 0.24, capsule_text, color='white', fontsize=18, 
                         fontweight='bold', family=font_family, va='center',
-                        bbox=dict(boxstyle="round,pad=0.35", fc="#020617", ec="none"))
+                        bbox=dict(boxstyle="round,pad=0.45", fc="#020617", ec="none"))
 
     # ----------------------------------------------------
     # TOP-RIGHT LEGEND MODULE (CONTINUOUS VS CATEGORICAL)
@@ -336,7 +340,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             ax_legend.text(i + 0.45, 0.15, label_text, color='white', fontsize=11, fontweight='bold', family=font_family,
                            ha='center', va='center', path_effects=path_effects)
     elif is_radar:
-        # Draw capsule-shaped continuous legend for Future Radar [input_file_2.py]
+        # Draw capsule-shaped continuous legend for Future Radar
         ax_legend = fig.add_axes([0.60, 0.88, 0.36, 0.035])
         ax_legend.axis('off')
         ax_legend.set_xlim(0, 10)
@@ -362,6 +366,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             # Discrete listed scale with boundary norm formatting
             cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
             cb.set_ticks(ticks)
+            # Unified whole/decimal ticks formatter
             tick_labels = [f"{int(t)}" if t == int(t) else f"{t:.2f}" for t in ticks]
             cb.ax.set_xticklabels(tick_labels)
         else:
