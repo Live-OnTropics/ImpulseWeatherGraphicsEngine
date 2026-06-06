@@ -6,26 +6,26 @@ class PrecipitationProduct(BaseProduct):
     def __init__(self):
         self._vmin = 0.01
         self._vmax = 20.0
-        # Replicated high-precision color scale from target graphic
+        # Muted, professional weather-engine color transitions
         self._color_points = [
-            (0.01, '#c2e5e9'),  # Light ice blue
-            (0.10, '#9dfc44'),  # Bright lime green
-            (0.25, '#2ca02c'),  # Medium grass green
-            (0.50, '#006600'),  # Dark forest green
-            (0.75, '#1f4e79'),  # Deep steel blue
-            (1.00, '#0077ff'),  # Vibrant blue
-            (1.25, '#33ccff'),  # Light sky blue
-            (1.50, '#7fffd4'),  # Aquamarine
-            (1.75, '#b39ddb'),  # Pale lavender
-            (2.00, '#9933cc'),  # Purple
-            (2.50, '#4a148c'),  # Dark grape purple
-            (3.00, '#800000'),  # Maroon
-            (4.00, '#ff0000'),  # Red
-            (5.00, '#ff6600'),  # Orange
-            (7.00, '#ffa500'),  # Gold-orange
-            (10.00, '#b8860b'), # Olive gold
-            (15.00, '#ffff00'), # Yellow
-            (20.00, '#ffb6c1')  # Pastel pink
+            (0.01, '#1c3445'),  # Deep dark slate-teal (transitions softly from #1b2432)
+            (0.10, '#244d5c'),  # Dark slate-blue
+            (0.25, '#2b6973'),  # Deep teal
+            (0.50, '#358a8a'),  # Muted seafoam
+            (0.75, '#41a695'),  # Minty teal-green
+            (1.00, '#52be80'),  # Soft grass green
+            (1.25, '#7dcd5b'),  # Light lime green
+            (1.50, '#bade4c'),  # Bright yellow-green
+            (1.75, '#f4d03f'),  # Warm yellow
+            (2.00, '#f39c12'),  # Warm orange
+            (2.50, '#d35400'),  # Burnt orange/red-orange
+            (3.00, '#c0392b'),  # Muted red
+            (4.00, '#900c3f'),  # Dark crimson red
+            (5.00, '#581845'),  # Deep dark wine/maroon
+            (7.00, '#8e44ad'),  # Purple
+            (10.00, '#732c91'), # Dark purple
+            (15.00, '#af7ac5'), # Lavender purple
+            (20.00, '#d7bde2')  # Light pastel orchid/pink
         ]
         self._ticks = [0.01, 0.10, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00, 2.50, 3.00, 4.00, 5.00, 7.00, 10.00, 15.00, 20.00]
 
@@ -64,7 +64,7 @@ class PrecipitationProduct(BaseProduct):
             return subset_data
 
     def aggregate_time(self, subset_day, time_dim: str, map_type: str):
-        # If the time slice contains multiple steps (for HRRR/NAM/RAP), sum them up to show accumulated totals [input_file_5.py]
+        # If the time slice contains multiple steps (for HRRR/NAM/RAP), sum them automatically
         if time_dim in subset_day.dims and subset_day[time_dim].size > 1:
             return subset_day.sum(dim=time_dim).load()
         return subset_day.squeeze().load()
