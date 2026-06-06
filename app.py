@@ -20,6 +20,7 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
         is_wpc = "Excessive Rainfall" in map_type
         is_vector = is_spc or is_wpc
         is_precip = "Precipitation" in map_type
+        is_radar = "Future Radar" in map_type
         
         region_class = REGIONS.get(selected_region_name, TexasRegion)
         region = region_class()
@@ -61,10 +62,13 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
             grid_lon, grid_lat = None, None
             grid_values = features
         else:
-            # Gridded products loading (Temperature vs Precipitation)
+            # Gridded products loading (Temperature vs Precipitation vs Radar) [input_file_0.py]
             if is_precip:
                 from src.products.precipitation import PrecipitationProduct
                 product = PrecipitationProduct()
+            elif is_radar:
+                from src.products.radar import FutureRadarProduct
+                product = FutureRadarProduct()
             else:
                 product = TemperatureProduct()
                 
@@ -113,11 +117,11 @@ if __name__ == '__main__':
         if selected_category == "Numerical Forecast Models":
             selected_map_type = st.sidebar.selectbox(
                 "Select Map Type:",
-                ["Forecast High Temperatures", "Forecast Low Temperatures", "Total Precipitation"]
+                ["Forecast High Temperatures", "Forecast Low Temperatures", "Total Precipitation", "Future Radar"]
             )
             
-            if selected_map_type == "Total Precipitation":
-                # Only HRRR is eligible for precipitation [input_file_0.py]
+            if selected_map_type in ["Total Precipitation", "Future Radar"]:
+                # Only HRRR is currently eligible for precipitaiton & future radar overlays [input_file_0.py]
                 selected_model = st.sidebar.selectbox(
                     "Select Numerical Model:",
                     ["HRRR (2.5km)"]
@@ -141,8 +145,9 @@ if __name__ == '__main__':
             if selected_ep is None:
                 selected_ep = MODEL_ENDPOINTS[0]
                 
-            if selected_map_type == "Total Precipitation":
-                max_hours, step = 36, 1
+            if selected_map_type in ["Total Precipitation", "Future Radar"]:
+                # Extended depth limit to 48 hours for HRRR total accumulation [input_file_4.py]
+                max_hours, step = 48, 1
                 
                 # Retrieve current synoptic cycle initialization in UTC to align frames
                 now_utc = datetime.datetime.now(zoneinfo.ZoneInfo("UTC"))
@@ -151,18 +156,24 @@ if __name__ == '__main__':
                 # Convert synchronization hour to localized Texas (Central) base time
                 base_time_local = run_utc.astimezone(local_tz)
                 
-                time_options = []
-                time_mapping = {}
-                for h in range(step, max_hours + 1, step):
-                    valid_time = base_time_local + datetime.timedelta(hours=h)
-                    # Formats options cleanly in Central time (e.g. Friday, Jun 05 @ 06:00 PM)
-                    label = valid_time.strftime("%A, %b %d @ %I:%M %p") + f" (+{h}h)"
-                    time_options.append(label)
-                    time_mapping[label] = h
-                    
-                selected_time_label = st.sidebar.selectbox("Select End Timepoint:", time_options)
-                forecast_setting = time_mapping[selected_time_label]
-                forecast_setting_str = f"{forecast_setting}H ACCUMULATED"
+                # Render Streamlit step-slider controls to navigate forecast timelines [input_file_0.py]
+                selected_hour = st.sidebar.slider(
+                    "Select Forecast Hour:",
+                    min_value=1,
+                    max_value=max_hours,
+                    value=1,
+                    step=step
+                )
+                
+                valid_time = base_time_local + datetime.timedelta(hours=selected_hour)
+                valid_time_str = valid_time.strftime("%A, %b %d @ %I:%M %p")
+                st.sidebar.caption(f"Valid: {valid_time_str}")
+                
+                forecast_setting = selected_hour
+                if selected_map_type == "Total Precipitation":
+                    forecast_setting_str = f"{selected_hour}H ACCUMULATED"
+                else:
+                    forecast_setting_str = f"HOUR {selected_hour} FORECAST"
             else:
                 max_days = selected_ep.get("max_days", 5)
                 day_options = []
