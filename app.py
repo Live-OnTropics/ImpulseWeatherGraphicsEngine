@@ -111,17 +111,24 @@ if __name__ == '__main__':
         today_date = datetime.datetime.now(local_tz).date()
         
         if selected_category == "Numerical Forecast Models":
-            # Show options for temperature models
-            selected_model = st.sidebar.selectbox(
-                "Select Numerical Model:",
-                ["NDFD", "HRRR (2.5km)", "NAM (12km)", "NAM (3km Nest)", "RAP (13km)", "GFS"],
-                index=5
-            )
-            
             selected_map_type = st.sidebar.selectbox(
                 "Select Map Type:",
                 ["Forecast High Temperatures", "Forecast Low Temperatures", "Total Precipitation"]
             )
+            
+            if selected_map_type == "Total Precipitation":
+                # Only HRRR is eligible for precipitation [input_file_0.py]
+                selected_model = st.sidebar.selectbox(
+                    "Select Numerical Model:",
+                    ["HRRR (2.5km)"]
+                )
+            else:
+                # Temperature models
+                selected_model = st.sidebar.selectbox(
+                    "Select Numerical Model:",
+                    ["NDFD", "HRRR (2.5km)", "NAM (12km)", "GFS"],
+                    index=3
+                )
             
             selected_ep = None
             for ep in MODEL_ENDPOINTS:
@@ -135,29 +142,13 @@ if __name__ == '__main__':
                 selected_ep = MODEL_ENDPOINTS[0]
                 
             if selected_map_type == "Total Precipitation":
-                # Determine model temporal depth boundaries
-                if "hrrr" in selected_model.lower():
-                    max_hours, step = 36, 1
-                elif "rap" in selected_model.lower():
-                    max_hours, step = 21, 1
-                elif "3km" in selected_model.lower():
-                    max_hours, step = 36, 1
-                elif "12km" in selected_model.lower():
-                    max_hours, step = 84, 3
-                elif "gfs" in selected_model.lower():
-                    max_hours, step = 120, 3
-                else:  # NDFD
-                    max_hours, step = 72, 6
+                max_hours, step = 36, 1
                 
-                # Retrieve current synoptic cycle initialization in UTC to align frames [input_file_4.py]
+                # Retrieve current synoptic cycle initialization in UTC to align frames
                 now_utc = datetime.datetime.now(zoneinfo.ZoneInfo("UTC"))
-                if "hrrr" in selected_model.lower() or "rap" in selected_model.lower() or "3km" in selected_model.lower():
-                    run_utc = now_utc.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=2)
-                else:
-                    cycle_hour = (now_utc.hour // 6) * 6
-                    run_utc = now_utc.replace(hour=cycle_hour, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=6)
+                run_utc = now_utc.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=2)
                 
-                # Convert synchronization hour to localized Texas (Central) base time [input_file_0.py]
+                # Convert synchronization hour to localized Texas (Central) base time
                 base_time_local = run_utc.astimezone(local_tz)
                 
                 time_options = []
