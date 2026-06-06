@@ -14,7 +14,7 @@ MODEL_ENDPOINTS = [
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/HRRR/CONUS_2p5km/Best",
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
-        "precip_candidates": ["Total_precipitation_surface_Mixed_intervals_Accumulation", "Total_precipitation_surface_Mixed_intervals", "Total_precipitation_surface"],
+        "precip_candidates": ["Total_precipitation_surface_1_Hour_Accumulation", "Total_precipitation_surface_Mixed_intervals_Accumulation", "Total_precipitation_surface_Mixed_intervals", "Total_precipitation_surface"],
         "max_days": 2
     },
     {
@@ -30,7 +30,7 @@ MODEL_ENDPOINTS = [
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/NAM/CONUS_3km/Best",
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
-        "precip_candidates": ["Total_precipitation_surface_Mixed_intervals_Accumulation", "Total_precipitation_surface_Mixed_intervals", "Total_precipitation_surface"],
+        "precip_candidates": ["Total_precipitation_surface_1_Hour_Accumulation", "Total_precipitation_surface_Mixed_intervals_Accumulation", "Total_precipitation_surface_Mixed_intervals", "Total_precipitation_surface"],
         "max_days": 2
     },
     {
@@ -38,7 +38,7 @@ MODEL_ENDPOINTS = [
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/RAP/CONUS_13km/Best",
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
-        "precip_candidates": ["Total_precipitation_surface_Mixed_intervals_Accumulation", "Total_precipitation_surface_Mixed_intervals", "Total_precipitation_surface"],
+        "precip_candidates": ["Total_precipitation_surface_1_Hour_Accumulation", "Total_precipitation_surface_Mixed_intervals_Accumulation", "Total_precipitation_surface_Mixed_intervals", "Total_precipitation_surface"],
         "max_days": 1
     },
     {
