@@ -202,16 +202,87 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Sum intervals only from active initialization index
+                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 start_idx = np.abs(pd_times_utc - base_ref).argmin()
                 
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
+                target_hour = int(forecast_setting)
                 
-                time_indices = slice(start_idx, target_idx + 1)
+                hours_since_ref = np.array([(t - base_ref).total_seconds() / 3600.0 for t in pd_times_utc])
+                
+                if is_hourly_accumulation:
+                    # HRRR, RAP, NAM 3km (Sum intervals only from active initialization index)
+                    time_indices = slice(start_idx, target_idx + 1)
+                else:
+                    # GFS, NDFD, NAM 12km (mixed-interval running total buckets)
+                    # Parse bounds starting specifically from start_idx to bypass duplicate timeline indices
+                    bounds_var_name = ds[time_dim].attrs.get('bounds')
+                    
+                    # Robust fallback variable scanner to identify dynamically changing bounds dimensions
+                    if not bounds_var_name or bounds_var_name not in ds.variables:
+                        time_size = ds[time_dim].size
+                        for v in ds.variables:
+                            v_lower = v.lower()
+                            if 'bounds' in v_lower:
+                                shape = ds[v].shape
+                                if len(shape) == 2 and shape[0] == time_size and shape[1] == 2:
+                                    bounds_var_name = v
+                                    print(f"[DEBUG] Fallback bounds resolver found: {bounds_var_name} (time_size: {time_size})")
+                                    break
+                                    
+                    exact_target_match = []
+                    
+                    if bounds_var_name and bounds_var_name in ds.variables:
+                        try:
+                            bounds_arr = ds[bounds_var_name].values
+                            print(f"[DEBUG] Loaded bounds variable '{bounds_var_name}' with shape {bounds_arr.shape}")
+                            
+                            # Strategy A: Look for a master bucket spanning exactly 0 to target_hour
+                            for i in range(start_idx, len(bounds_arr)):
+                                start_h = float(bounds_arr[i, 0])
+                                end_h = float(bounds_arr[i, 1])
+                                if abs(start_h) < 0.01 and abs(end_h - target_hour) < 0.1:
+                                    exact_target_match = [i]
+                                    print(f"[DEBUG] Strategy A Triggered: Found master 0-to-{target_hour}h bucket at index {i} (bounds: {start_h} -> {end_h})")
+                                    break
+                            
+                            # Strategy B: If no 0-to-H bucket exists (common at/after Hour 120),
+                            # gather all non-overlapping contiguous intervals up to the target_hour
+                            if not exact_target_match:
+                                print(f"[DEBUG] Strategy A failed (No 0-to-{target_hour}h master bucket found). Triggering Strategy B (backward-stitching)...")
+                                interval_indices = []
+                                current_seeking_end = target_hour
+                                
+                                # Walk backwards from the target hour to stitch intervals together
+                                for i in reversed(range(start_idx, target_idx + 1)):
+                                    start_h = float(bounds_arr[i, 0])
+                                    end_h = float(bounds_arr[i, 1])
+                                    
+                                    if abs(end_h - current_seeking_end) < 0.1:
+                                        interval_indices.append(i)
+                                        print(f"[DEBUG] Strategy B: Selected interval at index {i} (bounds: {start_h} -> {end_h}, matching end: {current_seeking_end})")
+                                        current_seeking_end = start_h # Next, find the chunk feeding into this one
+                                        if current_seeking_end < 0.01:
+                                            print(f"[DEBUG] Strategy B: Backward-stitching completed successfully. Reached 0.0h initialization.")
+                                            break
+                                
+                                if interval_indices:
+                                    exact_target_match = sorted(interval_indices)
+                                    print(f"[DEBUG] Strategy B final selected indices: {exact_target_match}")
+                                else:
+                                    print(f"[DEBUG] Strategy B failed to stitch intervals up to {target_hour}h.")
+                                    
+                        except Exception as e:
+                            print(f"[DEBUG] Error parsing mixed interval bounds: {e}")
+                            
+                    if len(exact_target_match) > 0:
+                        time_indices = exact_target_match
+                    else:
+                        time_indices = [target_idx]
             elif "Future Radar" in map_type:
-                # Extract single forecast frame matching the exact selected forecast hour [input_file_5.py]
+                # Extract single forecast frame matching the exact selected forecast hour
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
@@ -232,12 +303,35 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     
             subset_day = subset_converted.isel(**{time_dim: time_indices})
             
-            # Perform clean precipitation summing, temperature fallback
+            # Force explicit dropping to prevent dimension trailing tracking bugs
             if is_precip:
-                print(f"[DEBUG] Summing {subset_day[time_dim].size} intervals for HRRR Total Precipitation.")
-                max_temp_grid = subset_day.sum(dim=time_dim).load()
+                if "gfs" in name.lower():
+                    is_hourly_accumulation = False
+                    
+                if len(time_indices) > 1:
+                    print(f"[DEBUG] Strategy B Active: Explicitly summing {len(time_indices)} intervals for Total Precipitation.")
+                    summed_ds = subset_day.sum(dim=time_dim)
+                    if hasattr(summed_ds, 'drop_vars'):
+                        coords_to_drop = [c for c in summed_ds.coords if 'time' in c.lower() or 'bounds' in c.lower()]
+                        summed_ds = summed_ds.drop_vars(coords_to_drop, errors='ignore')
+                    max_temp_grid = summed_ds.load()
+                else:
+                    print(f"[DEBUG] Strategy A Active: Extracting single master accumulation bucket at index {time_indices[0]}.")
+                    squeezed_ds = subset_day.squeeze(dim=time_dim)
+                    if hasattr(squeezed_ds, 'drop_vars'):
+                        coords_to_drop = [c for c in squeezed_ds.coords if 'time' in c.lower() or 'bounds' in c.lower()]
+                        squeezed_ds = squeezed_ds.drop_vars(coords_to_drop, errors='ignore')
+                    max_temp_grid = squeezed_ds.load()
             else:
                 max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
+            
+            # Collapse any extra trailing dimensions to ensure the grid is strictly 2D [input_file_5.py]
+            if max_temp_grid.ndim > 2:
+                print(f"[DEBUG] Dimensional overlap detected: {max_temp_grid.dims}. Squeezing and slicing down to 2D...")
+                max_temp_grid = max_temp_grid.squeeze()
+                while max_temp_grid.ndim > 2:
+                    dim_to_slice = max_temp_grid.dims[0]
+                    max_temp_grid = max_temp_grid.isel(**{dim_to_slice: 0})
                 
             # Ensure grid_temp is a pure numpy array completely stripped of xarray dimensional traps
             grid_temp = np.asarray(max_temp_grid.values)
@@ -259,6 +353,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     else:
                         val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 except Exception as lookup_err:
+                    # Spatial lookup fallback checks to isolate mapping errors
                     print(f"[DEBUG] Spatial lookup failed for {city}: {lookup_err}. Recovering with flattened raw value fallback.")
                     try:
                         raw_slice = subset_converted.isel(**{time_dim: target_idx})
