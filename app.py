@@ -120,17 +120,11 @@ if __name__ == '__main__':
                 ["Forecast High Temperatures", "Forecast Low Temperatures", "Total Precipitation", "Future Radar"]
             )
             
-            if selected_map_type == "Total Precipitation":
-                # Only HRRR is currently eligible for precipitation
+            if selected_map_type in ["Total Precipitation", "Future Radar"]:
+                # Only HRRR is currently eligible for precipitation & future radar overlays
                 selected_model = st.sidebar.selectbox(
                     "Select Numerical Model:",
                     ["HRRR (2.5km)"]
-                )
-            elif selected_map_type == "Future Radar":
-                # Both HRRR and GFS are eligible for Future Radar [input_file_0.py]
-                selected_model = st.sidebar.selectbox(
-                    "Select Numerical Model:",
-                    ["HRRR (2.5km)", "GFS"]
                 )
             else:
                 # Temperature models
@@ -152,10 +146,7 @@ if __name__ == '__main__':
                 selected_ep = MODEL_ENDPOINTS[0]
                 
             if selected_map_type in ["Total Precipitation", "Future Radar"]:
-                if "hrrr" in selected_model.lower():
-                    max_hours, step = 48, 1
-                else:  # GFS [input_file_0.py]
-                    max_hours, step = 384, 3
+                max_hours, step = 48, 1
                 
                 # Retrieve current synoptic cycle initialization in UTC to align frames
                 now_utc = datetime.datetime.now(zoneinfo.ZoneInfo("UTC"))
@@ -182,10 +173,8 @@ if __name__ == '__main__':
                 st.sidebar.caption(f"Valid: {valid_time_str}")
                 
                 forecast_setting = selected_hour
-                if selected_map_type == "Total Precipitation":
-                    forecast_setting_str = f"{selected_hour}H ACCUMULATED"
-                else:
-                    forecast_setting_str = f"HOUR {selected_hour} FORECAST"
+                # Simplified forecast settings parsed directly into local timezone strings [input_file_0.py]
+                forecast_setting_str = f"VALID: {valid_time_str.upper()}"
             else:
                 max_days = selected_ep.get("max_days", 5)
                 day_options = []
@@ -198,7 +187,7 @@ if __name__ == '__main__':
                     
                 selected_day_label = st.sidebar.selectbox("Select Forecast Day:", day_options)
                 forecast_setting = day_mapping[selected_day_label]
-                forecast_setting_str = (today_date + datetime.timedelta(days=forecast_setting)).strftime("%A").upper()
+                forecast_setting_str = f"{(today_date + datetime.timedelta(days=forecast_setting)).strftime('%A').upper()} OUTLOOK"
         elif selected_category == "SPC Convective Outlooks":
             # Show convective parameters for Days 1 to 8 (Bypasses model select entirely)
             selected_map_type = st.sidebar.selectbox(
@@ -212,7 +201,7 @@ if __name__ == '__main__':
             selected_model = "SPC"
             forecast_setting = int(selected_map_type.split()[1])
             outlook_date = today_date + datetime.timedelta(days=forecast_setting - 1)
-            forecast_setting_str = outlook_date.strftime("%A").upper()
+            forecast_setting_str = f"{outlook_date.strftime('%A').upper()} OUTLOOK"
         else:
             # Show excessive rainfall parameters for Days 1 to 5 (Bypasses model select entirely)
             selected_map_type = st.sidebar.selectbox(
@@ -225,7 +214,7 @@ if __name__ == '__main__':
             selected_model = "WPC"
             forecast_setting = int(selected_map_type.split()[1])
             outlook_date = today_date + datetime.timedelta(days=forecast_setting - 1)
-            forecast_setting_str = outlook_date.strftime("%A").upper()
+            forecast_setting_str = f"{outlook_date.strftime('%A').upper()} OUTLOOK"
         
         if st.sidebar.button("Generate Map", type="primary"):
             with st.spinner("Compiling map assets..."):
