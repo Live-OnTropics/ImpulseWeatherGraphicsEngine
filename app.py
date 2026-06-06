@@ -62,7 +62,7 @@ def execute_pipeline(target_model, map_type, forecast_setting, forecast_setting_
             grid_lon, grid_lat = None, None
             grid_values = features
         else:
-            # Gridded products loading (Temperature vs Precipitation vs Radar) [input_file_0.py]
+            # Gridded products loading (Temperature vs Precipitation vs Radar)
             if is_precip:
                 from src.products.precipitation import PrecipitationProduct
                 product = PrecipitationProduct()
@@ -120,11 +120,17 @@ if __name__ == '__main__':
                 ["Forecast High Temperatures", "Forecast Low Temperatures", "Total Precipitation", "Future Radar"]
             )
             
-            if selected_map_type in ["Total Precipitation", "Future Radar"]:
-                # Only HRRR is currently eligible for precipitaiton & future radar overlays [input_file_0.py]
+            if selected_map_type == "Total Precipitation":
+                # Only HRRR is currently eligible for precipitation
                 selected_model = st.sidebar.selectbox(
                     "Select Numerical Model:",
                     ["HRRR (2.5km)"]
+                )
+            elif selected_map_type == "Future Radar":
+                # Both HRRR and GFS are eligible for Future Radar [input_file_0.py]
+                selected_model = st.sidebar.selectbox(
+                    "Select Numerical Model:",
+                    ["HRRR (2.5km)", "GFS"]
                 )
             else:
                 # Temperature models
@@ -146,22 +152,28 @@ if __name__ == '__main__':
                 selected_ep = MODEL_ENDPOINTS[0]
                 
             if selected_map_type in ["Total Precipitation", "Future Radar"]:
-                # Extended depth limit to 48 hours for HRRR total accumulation [input_file_4.py]
-                max_hours, step = 48, 1
+                if "hrrr" in selected_model.lower():
+                    max_hours, step = 48, 1
+                else:  # GFS [input_file_0.py]
+                    max_hours, step = 384, 3
                 
                 # Retrieve current synoptic cycle initialization in UTC to align frames
                 now_utc = datetime.datetime.now(zoneinfo.ZoneInfo("UTC"))
-                run_utc = now_utc.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=2)
+                if "hrrr" in selected_model.lower():
+                    run_utc = now_utc.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=2)
+                else:
+                    cycle_hour = (now_utc.hour // 6) * 6
+                    run_utc = now_utc.replace(hour=cycle_hour, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=6)
                 
                 # Convert synchronization hour to localized Texas (Central) base time
                 base_time_local = run_utc.astimezone(local_tz)
                 
-                # Render Streamlit step-slider controls to navigate forecast timelines [input_file_0.py]
+                min_val = 1 if "hrrr" in selected_model.lower() else 3
                 selected_hour = st.sidebar.slider(
                     "Select Forecast Hour:",
-                    min_value=1,
+                    min_value=min_val,
                     max_value=max_hours,
-                    value=1,
+                    value=min_val,
                     step=step
                 )
                 
