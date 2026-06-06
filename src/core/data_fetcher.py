@@ -85,7 +85,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             if temp_var is None:
                 raise ValueError(f"No matching variables found in the {name} schema.")
 
-            # Identify if the chosen variable is an hourly step or a mixed-interval cumulative bucket [input_file_5.py]
+            # Identify if the chosen variable is an hourly step or a mixed-interval cumulative bucket
             is_hourly_accumulation = "1_hour" in temp_var.lower()
 
             reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
@@ -191,7 +191,10 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
+                # Calculate active model run initialization index (anchor point) [input_file_5.py]
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
+                start_idx = np.abs(pd_times_utc - base_ref).argmin()
+                
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
                 target_hour = int(forecast_setting)
@@ -199,18 +202,18 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 hours_since_ref = np.array([(t - base_ref).total_seconds() / 3600.0 for t in pd_times_utc])
                 
                 if is_hourly_accumulation:
-                    # HRRR, RAP, NAM 3km (contiguous 1-hour intervals summed up) [input_file_5.py]
-                    time_indices = slice(0, target_idx + 1)
+                    # HRRR, RAP, NAM 3km (Sum intervals only from active initialization index) [input_file_5.py]
+                    time_indices = slice(start_idx, target_idx + 1)
                 else:
                     # GFS, NDFD, NAM 12km (mixed-interval running total buckets) [input_file_5.py]
-                    # Parse Climate & Forecast compliant bounds metadata to find the single 0.0 -> H interval [input_file_5.py]
+                    # Parse bounds starting specifically from start_idx to bypass duplicate timeline indices [input_file_5.py]
                     bounds_var_name = ds[time_dim].attrs.get('bounds')
                     exact_target_match = []
                     
                     if bounds_var_name and bounds_var_name in ds.variables:
                         try:
                             bounds_arr = ds[bounds_var_name].values
-                            for i in range(len(bounds_arr)):
+                            for i in range(start_idx, len(bounds_arr)):
                                 start_h = float(bounds_arr[i, 0])
                                 end_h = float(bounds_arr[i, 1])
                                 if abs(start_h) < 0.01 and abs(end_h - target_hour) < 0.1:
@@ -220,11 +223,13 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                             print(f"Skipping early bounds coordinate parsing: {e}")
                             
                     if not exact_target_match:
-                        # Fallback to standard hour matching
-                        matches = np.where(np.round(hours_since_ref) == target_hour)[0]
-                        if len(matches) > 0:
-                            exact_target_match = [matches[0]]
-                            
+                        # Fallback: scan for matching hours strictly after initialization start
+                        for i in range(start_idx, len(hours_since_ref)):
+                            h_rounded = int(round(hours_since_ref[i]))
+                            if h_rounded == target_hour:
+                                exact_target_match = [i]
+                                break
+                                
                     if len(exact_target_match) > 0:
                         time_indices = [exact_target_match[0]]
                     else:
