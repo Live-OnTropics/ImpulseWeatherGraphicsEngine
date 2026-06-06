@@ -41,9 +41,8 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
         print(f"Connecting to Unidata's {name}...")
         try:
             ds = xr.open_dataset(url)
-            ds = ds.metpy.parse_cf()
             
-            # Wrap longitudes from [0, 360] to [-180, 180] and sort them strictly increasing at the dataset level
+            # 1. Wrap longitudes and sort strictly increasing FIRST to prevent sortby metadata drops [input_file_5.py]
             for coord in list(ds.coords) + list(ds.variables):
                 if coord.lower() in ['lon', 'longitude']:
                     try:
@@ -54,11 +53,14 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     except Exception as e:
                         print(f"Skipping early longitude wrapping: {e}")
             
+            # 2. Parse CF metadata on the fully sorted dataset (keeps MetPy attributes intact) [input_file_5.py]
+            ds = ds.metpy.parse_cf()
+            
             is_precip = "Precipitation" in map_type
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
             
-            # 1. Primary search: exact candidate matches
+            # 3. Primary search: exact candidate matches
             for candidate in candidates:
                 for v in ds.variables:
                     if candidate.lower() in v.lower():
@@ -67,7 +69,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 if temp_var is not None:
                     break
                     
-            # 2. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation)
+            # 4. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation)
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
@@ -88,7 +90,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             # Identify if the chosen variable is an hourly step or a mixed-interval cumulative bucket
             is_hourly_accumulation = "1_hour" in temp_var.lower()
             
-            # Enforce hourly override immediately at initialization for GFS model layers [input_file_5.py]
+            # Enforce hourly override immediately at initialization for GFS model layers
             if is_precip and "gfs" in name.lower():
                 is_hourly_accumulation = False
 
@@ -126,6 +128,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             padding = 1.5
 
             if is_projected:
+                # Syntax corrected: removed the drafting typo [input_file_5.py]
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
                 y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
                 
@@ -289,7 +292,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     
             subset_day = subset_converted.isel(**{time_dim: time_indices})
             
-            # Explicitly drop coordinates to prevent dimension trailing tracking bugs [input_file_5.py]
+            # Force explicit dropping to prevent dimension trailing tracking bugs
             if is_precip:
                 if "gfs" in name.lower():
                     is_hourly_accumulation = False
@@ -311,7 +314,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             else:
                 max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
                 
-            # Ensure grid_temp is a pure numpy array completely stripped of xarray dimensional traps [input_file_5.py]
+            # Ensure grid_temp is a pure numpy array completely stripped of xarray dimensional traps
             grid_temp = np.asarray(max_temp_grid.values)
             print(f"[DEBUG] Final processed grid_temp shape: {grid_temp.shape}")
             
@@ -320,7 +323,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 grid_lat = grid_lat[::-1]
                 grid_temp = grid_temp[::-1, :]
             
-            # Define resolved fallback variables [input_file_5.py]
+            # Define resolved fallback variables
             lat_var_name = lat_var if 'lat_var' in locals() and lat_var is not None else 'lat'
             lon_var_name = lon_var if 'lon_var' in locals() and lon_var is not None else 'lon'
 
@@ -331,7 +334,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     else:
                         val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 except Exception as lookup_err:
-                    # Spatial lookup fallback checks to isolate mapping errors [input_file_5.py]
+                    # Spatial lookup fallback checks to isolate mapping errors
                     print(f"[DEBUG] Spatial lookup failed for {city}: {lookup_err}. Recovering with flattened raw value fallback.")
                     try:
                         raw_slice = subset_converted.isel(**{time_dim: target_idx})
