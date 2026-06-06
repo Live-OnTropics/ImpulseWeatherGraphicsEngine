@@ -108,7 +108,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             padding = 1.5
 
             if is_projected:
-                # Syntax corrected here [input_file_5.py]
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
                 y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
                 
@@ -168,7 +167,11 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             except Exception as e:
                 print(f"Time deduplication skipped: {e}")
             
-            subset = subset.squeeze()
+            # Squeeze out only non-time singleton dimensions to preserve the time dimension for aggregation [input_file_5.py]
+            squeeze_dims = [d for d in subset.dims if 'time' not in d.lower() and subset[d].size == 1]
+            if squeeze_dims:
+                subset = subset.squeeze(dim=squeeze_dims)
+                
             units = ds[temp_var].attrs.get('units', '')
             subset_converted = product.process_units(subset, units)
             
@@ -176,17 +179,39 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
+                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
+                target_hour = int(forecast_setting)
                 
-                is_incremental = any(k in name.lower() for k in ["hrrr", "rap", "3km", "12km"])
+                # Compute hours since initialization for each forecast timestep
+                hours_since_ref = np.array([(t - base_ref).total_seconds() / 3600.0 for t in pd_times_utc])
                 
-                if is_incremental:
-                    time_indices = slice(0, target_idx + 1)
+                is_gfs_or_ndfd = any(k in name.lower() for k in ["gfs", "ndfd"])
+                
+                if is_gfs_or_ndfd:
+                    # GFS/NDFD mixed-intervals logic (isolates non-overlapping contiguous steps)
+                    selected_indices = []
+                    if target_hour % 6 == 0:
+                        for i, h in enumerate(hours_since_ref):
+                            if h > 0 and h <= target_hour and h % 6 == 0:
+                                selected_indices.append(i)
+                    else:
+                        for i, h in enumerate(hours_since_ref):
+                            if h > 0 and h < target_hour and h % 6 == 0:
+                                selected_indices.append(i)
+                            if int(round(h)) == target_hour:
+                                selected_indices.append(i)
+                                
+                    if not selected_indices:
+                        selected_indices = [target_idx]
+                    time_indices = sorted(list(set(selected_indices)))
                 else:
-                    time_indices = [target_idx]
+                    # HRRR, RAP, NAM 3km, and NAM 12km (contiguous hourly/3-hourly steps)
+                    time_indices = slice(0, target_idx + 1)
             else:
+                # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
                 target_tz = zoneinfo.ZoneInfo(region.timezone_str)
                 now_local = datetime.datetime.now(target_tz)
@@ -209,6 +234,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 else:
                     val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 
+                # Render floats for precipitation, integers for temperature
                 map_label_temps[city] = round(val, 2) if "Precipitation" in map_type else int(round(val))
                 
             print(f"-> Successfully loaded forecast from: {name}")
