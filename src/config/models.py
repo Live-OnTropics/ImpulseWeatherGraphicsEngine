@@ -14,7 +14,8 @@ MODEL_ENDPOINTS = [
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
         "precip_candidates": ["Total_precipitation_surface_1_Hour_Accumulation"],
-        "max_days": 2
+        "radar_candidates": ["Composite_reflectivity_entire_atmosphere", "Composite_reflectivity", "REFC"],
+        "max_days": 2  # 48 hours
     },
     {
         "name": "NAM (12km)",
