@@ -15,7 +15,7 @@ MODEL_ENDPOINTS = [
         "lows_candidates": ["temperature_height_above_ground"],
         "precip_candidates": ["Total_precipitation_surface_1_Hour_Accumulation"],
         "radar_candidates": ["Composite_reflectivity_entire_atmosphere", "Composite_reflectivity", "REFC"],
-        "max_days": 2  # 48 hours
+        "max_days": 2
     },
     {
         "name": "NAM (12km)",
@@ -29,6 +29,7 @@ MODEL_ENDPOINTS = [
         "url": "https://thredds.ucar.edu/thredds/dodsC/grib/NCEP/GFS/Global_0p25deg/Best",
         "highs_candidates": ["temperature_height_above_ground"],
         "lows_candidates": ["temperature_height_above_ground"],
+        "radar_candidates": ["Composite_reflectivity_entire_atmosphere", "Composite_reflectivity", "REFC"],
         "max_days": 16
     }
 ]
