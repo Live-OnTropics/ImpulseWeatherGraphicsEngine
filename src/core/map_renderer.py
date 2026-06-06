@@ -99,7 +99,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     state_facecolor = base_land_color if (is_vector or is_precip) else 'none'
     
     # ----------------------------------------------------
-    # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
+    # DATA RENDER LAYER (GEO-POLYGONS VS GRIDDED PLOTS)
     # ----------------------------------------------------
     if is_vector:
         features = grid_values if grid_values is not None else []
@@ -130,9 +130,12 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         # ----------------------------------------------------
         # DISCRETE PRECIPITATION MAPPING (NO COLOR INTERPOLATION)
         # ----------------------------------------------------
-        custom_cmap = mcolors.ListedColormap([color for val, color in product.color_points])
+        from matplotlib.colors import from_levels_and_colors
         boundaries = product.colormap_ticks
-        norm = mcolors.BoundaryNorm(boundaries, ncolors=custom_cmap.N, extend='max')
+        colors_list = [color for val, color in product.color_points]
+        
+        # Generates a discrete colormap and normalizer specifically tailored for contourf mapping [input_file_2.py]
+        custom_cmap, norm = from_levels_and_colors(boundaries, colors_list, extend='max')
         ticks = boundaries
         unit_label = product.unit_label
         
@@ -220,10 +223,12 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     val_suffix = product.val_suffix if not is_vector else ""
     
     for city, (lat, lon) in region.cities.items():
+        # Always render the city name badge to keep coordinates oriented
         ax_map.text(lon, lat + city_offset, city, color='white', fontsize=22, fontweight='bold',
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
+        # Display the numerical values dynamically on top (only for gridded models, skipped on convective outlooks)
         if not is_vector:
             val = map_label_values.get(city)
             if val is not None and val != "":
@@ -336,7 +341,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             # Discrete listed scale with boundary norm formatting
             cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
             cb.set_ticks(ticks)
-            # Unified whole/decimal ticks formatter [input_file_2.py]
+            # Unified whole/decimal ticks formatter
             tick_labels = [f"{int(t)}" if t == int(t) else f"{t:.2f}" for t in ticks]
             cb.ax.set_xticklabels(tick_labels)
         else:
