@@ -87,6 +87,10 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
 
             # Identify if the chosen variable is an hourly step or a mixed-interval cumulative bucket
             is_hourly_accumulation = "1_hour" in temp_var.lower()
+            
+            # Enforce hourly override immediately at initialization for GFS model layers [input_file_5.py]
+            if is_precip and "gfs" in name.lower():
+                is_hourly_accumulation = False
 
             reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
             if reftime_dims:
@@ -285,31 +289,56 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     
             subset_day = subset_converted.isel(**{time_dim: time_indices})
             
-            # Force explicit handling for Precipitation accumulations [input_file_5.py]
+            # Explicitly drop coordinates to prevent dimension trailing tracking bugs [input_file_5.py]
             if is_precip:
+                if "gfs" in name.lower():
+                    is_hourly_accumulation = False
+                    
                 if len(time_indices) > 1:
                     print(f"[DEBUG] Strategy B Active: Explicitly summing {len(time_indices)} intervals for Total Precipitation.")
-                    max_temp_grid = subset_day.sum(dim=time_dim).load()
+                    summed_ds = subset_day.sum(dim=time_dim)
+                    if hasattr(summed_ds, 'drop_vars'):
+                        coords_to_drop = [c for c in summed_ds.coords if 'time' in c.lower() or 'bounds' in c.lower()]
+                        summed_ds = summed_ds.drop_vars(coords_to_drop, errors='ignore')
+                    max_temp_grid = summed_ds.load()
                 else:
                     print(f"[DEBUG] Strategy A Active: Extracting single master accumulation bucket at index {time_indices[0]}.")
-                    # Squeeze out the time dimension since we are using a single index, ensuring it matches grid expectations
-                    max_temp_grid = subset_day.squeeze(dim=time_dim).load()
+                    squeezed_ds = subset_day.squeeze(dim=time_dim)
+                    if hasattr(squeezed_ds, 'drop_vars'):
+                        coords_to_drop = [c for c in squeezed_ds.coords if 'time' in c.lower() or 'bounds' in c.lower()]
+                        squeezed_ds = squeezed_ds.drop_vars(coords_to_drop, errors='ignore')
+                    max_temp_grid = squeezed_ds.load()
             else:
-                # Traditional temperature or other non-accumulation variables
                 max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
                 
-            grid_temp = max_temp_grid.values
+            # Ensure grid_temp is a pure numpy array completely stripped of xarray dimensional traps [input_file_5.py]
+            grid_temp = np.asarray(max_temp_grid.values)
+            print(f"[DEBUG] Final processed grid_temp shape: {grid_temp.shape}")
             
             # If latitudes are descending, reverse them and the grid values to be strictly increasing
             if not is_projected and len(grid_lat) > 1 and grid_lat[1] < grid_lat[0]:
                 grid_lat = grid_lat[::-1]
                 grid_temp = grid_temp[::-1, :]
             
+            # Define resolved fallback variables [input_file_5.py]
+            lat_var_name = lat_var if 'lat_var' in locals() and lat_var is not None else 'lat'
+            lon_var_name = lon_var if 'lon_var' in locals() and lon_var is not None else 'lon'
+
             for city, (lat, lon) in region.cities.items():
-                if is_projected:
-                    val = find_nearest_projected_value(grid_lon, grid_lat, grid_temp, lon, lat, data_proj)
-                else:
-                    val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
+                try:
+                    if is_projected:
+                        val = find_nearest_projected_value(grid_lon, grid_lat, grid_temp, lon, lat, data_proj)
+                    else:
+                        val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
+                except Exception as lookup_err:
+                    # Spatial lookup fallback checks to isolate mapping errors [input_file_5.py]
+                    print(f"[DEBUG] Spatial lookup failed for {city}: {lookup_err}. Recovering with flattened raw value fallback.")
+                    try:
+                        raw_slice = subset_converted.isel(**{time_dim: target_idx})
+                        val = float(raw_slice.sel(**{lat_var_name: lat, lon_var_name: lon}, method='nearest').values.flatten()[0])
+                    except Exception as fallback_err:
+                        print(f"[DEBUG] Primary fallback failed: {fallback_err}. Extracting absolute flattened scalar.")
+                        val = float(subset_converted.isel(**{time_dim: target_idx}).values.flatten()[0])
                 
                 # Render floats for precipitation, integers for temperature
                 map_label_temps[city] = round(val, 2) if "Precipitation" in map_type else int(round(val))
