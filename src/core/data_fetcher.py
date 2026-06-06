@@ -217,7 +217,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     time_indices = slice(start_idx, target_idx + 1)
                 else:
                     # GFS, NDFD, NAM 12km (mixed-interval running total buckets)
-                    # Parse bounds starting specifically from start_idx to bypass duplicate timeline indices
                     bounds_var_name = ds[time_dim].attrs.get('bounds')
                     
                     # Robust fallback variable scanner to identify dynamically changing bounds dimensions
@@ -325,7 +324,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             else:
                 max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
             
-            # Collapse any extra trailing dimensions to ensure the grid is strictly 2D [input_file_5.py]
+            # Collapse any extra trailing dimensions to ensure the grid is strictly 2D
             if max_temp_grid.ndim > 2:
                 print(f"[DEBUG] Dimensional overlap detected: {max_temp_grid.dims}. Squeezing and slicing down to 2D...")
                 max_temp_grid = max_temp_grid.squeeze()
@@ -342,6 +341,26 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 grid_lat = grid_lat[::-1]
                 grid_temp = grid_temp[::-1, :]
             
+            # Smooth coarse regular and projected grids (like GFS, NAM 12km, NDFD) to prevent sharp jagged contours [input_file_5.py]
+            if len(grid_lat) > 1 and len(grid_lat) < 300:
+                try:
+                    from scipy.ndimage import zoom
+                    zoom_factor = 4.0  # Scale up resolution by 400%
+                    
+                    # Bilinear (order=1) for precip/radar prevents negative overshoots. Cubic (order=3) for temperatures. [input_file_5.py]
+                    interp_order = 1 if (is_precip or is_radar) else 3
+                    
+                    grid_temp_smooth = zoom(grid_temp, zoom_factor, order=interp_order)
+                    grid_lat_smooth = np.linspace(grid_lat[0], grid_lat[-1], grid_temp_smooth.shape[0])
+                    grid_lon_smooth = np.linspace(grid_lon[0], grid_lon[-1], grid_temp_smooth.shape[1])
+                    
+                    grid_lat = grid_lat_smooth
+                    grid_lon = grid_lon_smooth
+                    grid_temp = grid_temp_smooth
+                    print(f"[DEBUG] Coarse model grid successfully smoothed 400% using SciPy zoom (New shape: {grid_temp.shape})")
+                except Exception as zoom_err:
+                    print(f"[DEBUG] Grid smoothing skipped: {zoom_err}")
+
             # Define resolved fallback variables
             lat_var_name = lat_var if 'lat_var' in locals() and lat_var is not None else 'lat'
             lon_var_name = lon_var if 'lon_var' in locals() and lon_var is not None else 'lon'
