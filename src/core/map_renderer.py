@@ -94,9 +94,10 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     is_wpc = "Excessive Rainfall" in map_type
     is_vector = is_spc or is_wpc
     is_precip = "Precipitation" in map_type
+    is_radar = "Future Radar" in map_type
     
     base_land_color = '#1b2432'
-    state_facecolor = base_land_color if (is_vector or is_precip) else 'none'
+    state_facecolor = base_land_color if (is_vector or is_precip or is_radar) else 'none'
     
     # ----------------------------------------------------
     # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
@@ -139,12 +140,12 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         ticks = boundaries
         unit_label = product.unit_label
         
-        # Elevated Z-Order to 1.8 so contour fills render clearly on top of the base Texas landmass (1.5) [input_file_2.py]
+        # Sliced using boundaries exactly to draw solid un-interpolated categorical bands
         cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=boundaries, cmap=custom_cmap, norm=norm,
                              transform=data_proj, extend='max', zorder=1.8)
     else:
         # ----------------------------------------------------
-        # CONTINUOUS TEMPERATURE CONTOUR MAPPING
+        # CONTINUOUS TEMPERATURE & REFLECTIVITY CONTOUR MAPPING [input_file_2.py]
         # ----------------------------------------------------
         vmin, vmax = product.vmin, product.vmax
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
@@ -154,10 +155,10 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         ticks = product.colormap_ticks
         unit_label = product.unit_label
             
-        levels = np.linspace(vmin, vmax, 161)
-        # Elevated Z-Order to 1.8 so contour fills render cleanly on top of transparent structures [input_file_2.py]
+        levels = np.linspace(vmin, vmax, 100 if is_radar else 161)
+        extend_mode = 'max' if is_radar else 'both'
         cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=levels, cmap=custom_cmap, norm=norm,
-                             transform=data_proj, extend='both', zorder=1.8)
+                             transform=data_proj, extend=extend_mode, zorder=1.8)
     
     # ----------------------------------------------------
     # GEOGRAPHIC LAYER DECORATIONS & HIGHLIGHTS
@@ -224,11 +225,13 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     val_suffix = product.val_suffix if not is_vector else ""
     
     for city, (lat, lon) in region.cities.items():
+        # Always render the city name badge to keep coordinates oriented
         ax_map.text(lon, lat + city_offset, city, color='white', fontsize=22, fontweight='bold',
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
-        if not is_vector:
+        # Display the numerical values dynamically on top (only for gridded models, skipped on convective outlooks & radar) [input_file_2.py]
+        if not (is_vector or is_radar):
             val = map_label_values.get(city)
             if val is not None and val != "":
                 val_str = f"{val:.2f}" if is_precip else f"{val}"
@@ -332,15 +335,33 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
             ax_legend.add_patch(rect)
             ax_legend.text(i + 0.45, 0.15, label_text, color='white', fontsize=11, fontweight='bold', family=font_family,
                            ha='center', va='center', path_effects=path_effects)
+    elif is_radar:
+        # Draw capsule-shaped continuous legend for Future Radar [input_file_2.py]
+        ax_legend = fig.add_axes([0.60, 0.88, 0.36, 0.035])
+        ax_legend.axis('off')
+        ax_legend.set_xlim(0, 10)
+        ax_legend.set_ylim(0, 1)
+        
+        ax_legend.text(0.1, 0.5, "Light", color='white', fontsize=12, fontweight='bold', family=font_family,
+                       ha='left', va='center', path_effects=path_effects)
+        
+        cax_radar = fig.add_axes([0.67, 0.89, 0.22, 0.015])
+        cb_radar = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax_radar, orientation='horizontal')
+        cb_radar.outline.set_visible(True)
+        cb_radar.outline.set_edgecolor('white')
+        cb_radar.outline.set_linewidth(1.0)
+        cb_radar.set_ticks([])
+        
+        ax_legend.text(9.9, 0.5, "Heavy", color='white', fontsize=12, fontweight='bold', family=font_family,
+                       ha='right', va='center', path_effects=path_effects)
     else:
-        # Continuous numeric scale (Updated with formatting check for precipitation)
+        # Continuous numeric scale for model contours
         cax = fig.add_axes([0.60, 0.89, 0.36, 0.015])
         
         if is_precip:
             # Discrete listed scale with boundary norm formatting
             cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=custom_cmap), cax=cax, orientation='horizontal')
             cb.set_ticks(ticks)
-            # Unified whole/decimal ticks formatter
             tick_labels = [f"{int(t)}" if t == int(t) else f"{t:.2f}" for t in ticks]
             cb.ax.set_xticklabels(tick_labels)
         else:
