@@ -42,7 +42,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
         try:
             ds = xr.open_dataset(url)
             
-            # 1. Wrap longitudes and sort strictly increasing FIRST to prevent sortby metadata drops [input_file_5.py]
+            # Wrap longitudes and sort strictly increasing FIRST to prevent sortby metadata drops
             for coord in list(ds.coords) + list(ds.variables):
                 if coord.lower() in ['lon', 'longitude']:
                     try:
@@ -53,14 +53,14 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     except Exception as e:
                         print(f"Skipping early longitude wrapping: {e}")
             
-            # 2. Parse CF metadata on the fully sorted dataset (keeps MetPy attributes intact) [input_file_5.py]
+            # Parse CF metadata on the sorted dataset (keeps MetPy attributes intact)
             ds = ds.metpy.parse_cf()
             
             is_precip = "Precipitation" in map_type
             temp_var = None
             coordinate_names = ['lat', 'lon', 'latitude', 'longitude', 'x', 'y', 'time', 'reftime', 'height_above_ground', 'projection']
             
-            # 3. Primary search: exact candidate matches
+            # 1. Primary search: exact candidate matches
             for candidate in candidates:
                 for v in ds.variables:
                     if candidate.lower() in v.lower():
@@ -69,7 +69,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 if temp_var is not None:
                     break
                     
-            # 4. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation)
+            # 2. Resilient secondary search: strict product-type checking (prevents mixing temperature and precipitation)
             if temp_var is None:
                 for v in ds.variables:
                     v_lower = v.lower()
@@ -86,13 +86,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                         
             if temp_var is None:
                 raise ValueError(f"No matching variables found in the {name} schema.")
-
-            # Identify if the chosen variable is an hourly step or a mixed-interval cumulative bucket
-            is_hourly_accumulation = "1_hour" in temp_var.lower()
-            
-            # Enforce hourly override immediately at initialization for GFS model layers
-            if is_precip and "gfs" in name.lower():
-                is_hourly_accumulation = False
 
             reftime_dims = [d for d in ds[temp_var].dims if 'reftime' in d.lower()]
             if reftime_dims:
@@ -128,7 +121,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             padding = 1.5
 
             if is_projected:
-                # Syntax corrected: removed the drafting typo [input_file_5.py]
                 x_dim = [d for d in temp_dims if 'x' in d.lower()][0]
                 y_dim = [d for d in temp_dims if 'y' in d.lower()][0]
                 
@@ -198,84 +190,15 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Calculate active model run initialization index (anchor point)
+                # Find the index of the run initialization start time (F00)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 start_idx = np.abs(pd_times_utc - base_ref).argmin()
                 
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
-                target_hour = int(forecast_setting)
                 
-                hours_since_ref = np.array([(t - base_ref).total_seconds() / 3600.0 for t in pd_times_utc])
-                
-                if is_hourly_accumulation:
-                    # HRRR, RAP, NAM 3km (Sum intervals only from active initialization index)
-                    time_indices = slice(start_idx, target_idx + 1)
-                else:
-                    # GFS, NDFD, NAM 12km (mixed-interval running total buckets)
-                    bounds_var_name = ds[time_dim].attrs.get('bounds')
-                    
-                    # Robust fallback variable scanner to identify dynamically changing bounds dimensions
-                    if not bounds_var_name or bounds_var_name not in ds.variables:
-                        time_size = ds[time_dim].size
-                        for v in ds.variables:
-                            v_lower = v.lower()
-                            if 'bounds' in v_lower:
-                                shape = ds[v].shape
-                                if len(shape) == 2 and shape[0] == time_size and shape[1] == 2:
-                                    bounds_var_name = v
-                                    print(f"[DEBUG] Fallback bounds resolver found: {bounds_var_name} (time_size: {time_size})")
-                                    break
-                                    
-                    exact_target_match = []
-                    
-                    if bounds_var_name and bounds_var_name in ds.variables:
-                        try:
-                            bounds_arr = ds[bounds_var_name].values
-                            print(f"[DEBUG] Loaded bounds variable '{bounds_var_name}' with shape {bounds_arr.shape}")
-                            
-                            # Strategy A: Look for a master bucket spanning exactly 0 to target_hour
-                            for i in range(start_idx, len(bounds_arr)):
-                                start_h = float(bounds_arr[i, 0])
-                                end_h = float(bounds_arr[i, 1])
-                                if abs(start_h) < 0.01 and abs(end_h - target_hour) < 0.1:
-                                    exact_target_match = [i]
-                                    print(f"[DEBUG] Strategy A Triggered: Found master 0-to-{target_hour}h bucket at index {i} (bounds: {start_h} -> {end_h})")
-                                    break
-                            
-                            # Strategy B: If no 0-to-H bucket exists (common at/after Hour 120),
-                            # gather all non-overlapping contiguous intervals up to the target_hour
-                            if not exact_target_match:
-                                print(f"[DEBUG] Strategy A failed (No 0-to-{target_hour}h master bucket found). Triggering Strategy B (backward-stitching)...")
-                                interval_indices = []
-                                current_seeking_end = target_hour
-                                
-                                # Walk backwards from the target hour to stitch intervals together
-                                for i in reversed(range(start_idx, target_idx + 1)):
-                                    start_h = float(bounds_arr[i, 0])
-                                    end_h = float(bounds_arr[i, 1])
-                                    
-                                    if abs(end_h - current_seeking_end) < 0.1:
-                                        interval_indices.append(i)
-                                        print(f"[DEBUG] Strategy B: Selected interval at index {i} (bounds: {start_h} -> {end_h}, matching end: {current_seeking_end})")
-                                        current_seeking_end = start_h # Next, find the chunk feeding into this one
-                                        if current_seeking_end < 0.01:
-                                            print(f"[DEBUG] Strategy B: Backward-stitching completed successfully. Reached 0.0h initialization.")
-                                            break
-                                
-                                if interval_indices:
-                                    exact_target_match = sorted(interval_indices)
-                                    print(f"[DEBUG] Strategy B final selected indices: {exact_target_match}")
-                                else:
-                                    print(f"[DEBUG] Strategy B failed to stitch intervals up to {target_hour}h.")
-                                    
-                        except Exception as e:
-                            print(f"[DEBUG] Error parsing mixed interval bounds: {e}")
-                            
-                    if len(exact_target_match) > 0:
-                        time_indices = exact_target_match
-                    else:
-                        time_indices = [target_idx]
+                # Sum consecutive hourly steps from active initialization index directly
+                time_indices = slice(start_idx, target_idx + 1)
             else:
                 # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
@@ -292,25 +215,10 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     
             subset_day = subset_converted.isel(**{time_dim: time_indices})
             
-            # Force explicit dropping to prevent dimension trailing tracking bugs
+            # Perform clean precipitation summing, temperature fallback
             if is_precip:
-                if "gfs" in name.lower():
-                    is_hourly_accumulation = False
-                    
-                if len(time_indices) > 1:
-                    print(f"[DEBUG] Strategy B Active: Explicitly summing {len(time_indices)} intervals for Total Precipitation.")
-                    summed_ds = subset_day.sum(dim=time_dim)
-                    if hasattr(summed_ds, 'drop_vars'):
-                        coords_to_drop = [c for c in summed_ds.coords if 'time' in c.lower() or 'bounds' in c.lower()]
-                        summed_ds = summed_ds.drop_vars(coords_to_drop, errors='ignore')
-                    max_temp_grid = summed_ds.load()
-                else:
-                    print(f"[DEBUG] Strategy A Active: Extracting single master accumulation bucket at index {time_indices[0]}.")
-                    squeezed_ds = subset_day.squeeze(dim=time_dim)
-                    if hasattr(squeezed_ds, 'drop_vars'):
-                        coords_to_drop = [c for c in squeezed_ds.coords if 'time' in c.lower() or 'bounds' in c.lower()]
-                        squeezed_ds = squeezed_ds.drop_vars(coords_to_drop, errors='ignore')
-                    max_temp_grid = squeezed_ds.load()
+                print(f"[DEBUG] Summing {subset_day[time_dim].size} intervals for HRRR Total Precipitation.")
+                max_temp_grid = subset_day.sum(dim=time_dim).load()
             else:
                 max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
                 
@@ -334,7 +242,6 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     else:
                         val = find_nearest_regular_value(grid_lon, grid_lat, grid_temp, lon, lat)
                 except Exception as lookup_err:
-                    # Spatial lookup fallback checks to isolate mapping errors
                     print(f"[DEBUG] Spatial lookup failed for {city}: {lookup_err}. Recovering with flattened raw value fallback.")
                     try:
                         raw_slice = subset_converted.isel(**{time_dim: target_idx})
