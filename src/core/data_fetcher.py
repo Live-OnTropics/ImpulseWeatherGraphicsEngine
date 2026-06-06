@@ -188,37 +188,11 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Resolve the single forecast frame closest to the initialization time (reftime + h hours)
+                # Select only the single pre-accumulated grid frame directly, resolving the double-counting bug [input_file_5.py]
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 target_time_utc = base_ref + datetime.timedelta(hours=int(forecast_setting))
                 target_idx = np.abs(pd_times_utc - target_time_utc).argmin()
-                target_hour = int(forecast_setting)
-                
-                # Compute hours since initialization for each forecast timestep
-                hours_since_ref = np.array([(t - base_ref).total_seconds() / 3600.0 for t in pd_times_utc])
-                
-                is_gfs_or_ndfd = any(k in name.lower() for k in ["gfs", "ndfd"])
-                
-                if is_gfs_or_ndfd:
-                    # GFS/NDFD mixed-intervals logic (isolates non-overlapping contiguous steps)
-                    selected_indices = []
-                    if target_hour % 6 == 0:
-                        for i, h in enumerate(hours_since_ref):
-                            if h > 0 and h <= target_hour and h % 6 == 0:
-                                selected_indices.append(i)
-                    else:
-                        for i, h in enumerate(hours_since_ref):
-                            if h > 0 and h < target_hour and h % 6 == 0:
-                                selected_indices.append(i)
-                            if int(round(h)) == target_hour:
-                                selected_indices.append(i)
-                                
-                    if not selected_indices:
-                        selected_indices = [target_idx]
-                    time_indices = sorted(list(set(selected_indices)))
-                else:
-                    # HRRR, RAP, NAM 3km, and NAM 12km (contiguous hourly/3-hourly steps)
-                    time_indices = slice(0, target_idx + 1)
+                time_indices = [target_idx]
             else:
                 # Traditional temperature calendar indexing
                 pd_times_local = pd_times_utc.tz_convert(region.timezone_str)
