@@ -4,17 +4,18 @@ from src.products.base import BaseProduct
 class FutureRadarProduct(BaseProduct):
     def __init__(self):
         self._vmin = 10.0
-        self._vmax = 75.0
-        # Continuous reflectivity scale from target legend
+        self._vmax = 70.0  # Upper scale boundary set to 70.0 dBZ
+        # Binned color table with sharp transition at 35.0 dBZ [input_file_2.py]
         self._color_points = [
-            (10, '#244a34'),  # Deep forest green
-            (20, '#55aa55'),  # Medium grass green
-            (30, '#ffe066'),  # Yellow
-            (40, '#ff9933'),  # Orange
-            (50, '#cc1111'),  # Red
-            (60, '#e500e5'),  # Magenta / Hot Pink
-            (70, '#ffaaff'),  # Light Lavender Pink
-            (75, '#ffffff')   # White
+            (10.0, '#76EE76'),     # Light Green
+            (22.5, '#45C145'),     # Medium Green
+            (35.0, '#1B7A1B'),     # Dark Green (upper boundary of green)
+            (35.001, '#FFF033'),   # Warm Yellow (sharp jump at 35.0 dBZ!) [input_file_2.py]
+            (45.0, '#FF8000'),     # Orange
+            (50.0, '#FF0000'),     # Red
+            (55.0, '#A00000'),     # Dark Red
+            (65.0, '#FF00FF'),     # Magenta
+            (70.0, '#FFFFFF')      # White
         ]
 
     @property
@@ -40,4 +41,4 @@ class FutureRadarProduct(BaseProduct):
         return subset_data
 
     def aggregate_time(self, subset_day, time_dim: str, map_type: str):
-        return subset_day.squeeze().load()
+        return subset_day
