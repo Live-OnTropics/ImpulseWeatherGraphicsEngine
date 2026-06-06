@@ -99,7 +99,7 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     state_facecolor = base_land_color if (is_vector or is_precip) else 'none'
     
     # ----------------------------------------------------
-    # DATA RENDER LAYER (GEO-POLYGONS VS GRIDDED PLOTS)
+    # DATA RENDER LAYER (GEO-POLYGONS VS HEAT CONTOURS)
     # ----------------------------------------------------
     if is_vector:
         features = grid_values if grid_values is not None else []
@@ -134,14 +134,14 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         boundaries = product.colormap_ticks
         colors_list = [color for val, color in product.color_points]
         
-        # Generates a discrete colormap and normalizer specifically tailored for contourf mapping [input_file_2.py]
+        # Generates a discrete colormap and normalizer specifically tailored for contourf mapping
         custom_cmap, norm = from_levels_and_colors(boundaries, colors_list, extend='max')
         ticks = boundaries
         unit_label = product.unit_label
         
-        # Sliced using boundaries exactly to draw solid un-interpolated categorical bands
+        # Elevated Z-Order to 1.8 so contour fills render clearly on top of the base Texas landmass (1.5) [input_file_2.py]
         cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=boundaries, cmap=custom_cmap, norm=norm,
-                             transform=data_proj, extend='max', zorder=1)
+                             transform=data_proj, extend='max', zorder=1.8)
     else:
         # ----------------------------------------------------
         # CONTINUOUS TEMPERATURE CONTOUR MAPPING
@@ -155,8 +155,9 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
         unit_label = product.unit_label
             
         levels = np.linspace(vmin, vmax, 161)
+        # Elevated Z-Order to 1.8 so contour fills render cleanly on top of transparent structures [input_file_2.py]
         cf = ax_map.contourf(grid_lon, grid_lat, grid_values, levels=levels, cmap=custom_cmap, norm=norm,
-                             transform=data_proj, extend='both', zorder=1)
+                             transform=data_proj, extend='both', zorder=1.8)
     
     # ----------------------------------------------------
     # GEOGRAPHIC LAYER DECORATIONS & HIGHLIGHTS
@@ -223,12 +224,10 @@ def render_map(grid_lon, grid_lat, grid_values, map_label_values, model_name, da
     val_suffix = product.val_suffix if not is_vector else ""
     
     for city, (lat, lon) in region.cities.items():
-        # Always render the city name badge to keep coordinates oriented
         ax_map.text(lon, lat + city_offset, city, color='white', fontsize=22, fontweight='bold',
                     ha='center', va='center', transform=ccrs.PlateCarree(), family=font_family, zorder=6,
                     bbox=dict(boxstyle="round,pad=0.22", fc="#020617", ec="none"))
         
-        # Display the numerical values dynamically on top (only for gridded models, skipped on convective outlooks)
         if not is_vector:
             val = map_label_values.get(city)
             if val is not None and val != "":
