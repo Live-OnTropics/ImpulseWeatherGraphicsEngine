@@ -191,7 +191,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
             pd_times_utc = pd_times.tz_localize('UTC') if pd_times.tz is None else pd_times.tz_convert('UTC')
             
             if "Precipitation" in map_type:
-                # Calculate active model run initialization index (anchor point) [input_file_5.py]
+                # Calculate active model run initialization index (anchor point)
                 base_ref = utc_ref if utc_ref is not None else pd_times_utc[0]
                 start_idx = np.abs(pd_times_utc - base_ref).argmin()
                 
@@ -202,36 +202,51 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                 hours_since_ref = np.array([(t - base_ref).total_seconds() / 3600.0 for t in pd_times_utc])
                 
                 if is_hourly_accumulation:
-                    # HRRR, RAP, NAM 3km (Sum intervals only from active initialization index) [input_file_5.py]
+                    # HRRR, RAP, NAM 3km (Sum intervals only from active initialization index)
                     time_indices = slice(start_idx, target_idx + 1)
                 else:
                     # GFS, NDFD, NAM 12km (mixed-interval running total buckets) [input_file_5.py]
-                    # Parse bounds starting specifically from start_idx to bypass duplicate timeline indices [input_file_5.py]
+                    # Parse bounds starting specifically from start_idx to bypass duplicate timeline indices
                     bounds_var_name = ds[time_dim].attrs.get('bounds')
                     exact_target_match = []
                     
                     if bounds_var_name and bounds_var_name in ds.variables:
                         try:
                             bounds_arr = ds[bounds_var_name].values
+                            
+                            # Strategy A: Look for a master bucket spanning exactly 0 to target_hour [input_file_5.py]
                             for i in range(start_idx, len(bounds_arr)):
                                 start_h = float(bounds_arr[i, 0])
                                 end_h = float(bounds_arr[i, 1])
                                 if abs(start_h) < 0.01 and abs(end_h - target_hour) < 0.1:
-                                    exact_target_match.append(i)
+                                    exact_target_match = [i]
                                     break
-                        except Exception as e:
-                            print(f"Skipping early bounds coordinate parsing: {e}")
                             
-                    if not exact_target_match:
-                        # Fallback: scan for matching hours strictly after initialization start
-                        for i in range(start_idx, len(hours_since_ref)):
-                            h_rounded = int(round(hours_since_ref[i]))
-                            if h_rounded == target_hour:
-                                exact_target_match = [i]
-                                break
+                            # Strategy B: If no 0-to-H bucket exists (common at/after Hour 120), [input_file_5.py]
+                            # gather all non-overlapping contiguous intervals up to the target_hour
+                            if not exact_target_match:
+                                interval_indices = []
+                                current_seeking_end = target_hour
                                 
+                                # Walk backwards from the target hour to stitch intervals together [input_file_5.py]
+                                for i in reversed(range(start_idx, target_idx + 1)):
+                                    start_h = float(bounds_arr[i, 0])
+                                    end_h = float(bounds_arr[i, 1])
+                                    
+                                    if abs(end_h - current_seeking_end) < 0.1:
+                                        interval_indices.append(i)
+                                        current_seeking_end = start_h # Find the chunk feeding into this one [input_file_5.py]
+                                        if current_seeking_end < 0.01:
+                                            break
+                                
+                                if interval_indices:
+                                    exact_target_match = sorted(interval_indices)
+                                    
+                        except Exception as e:
+                            print(f"Error parsing mixed interval bounds: {e}")
+                            
                     if len(exact_target_match) > 0:
-                        time_indices = [exact_target_match[0]]
+                        time_indices = exact_target_match
                     else:
                         time_indices = [target_idx]
             else:
