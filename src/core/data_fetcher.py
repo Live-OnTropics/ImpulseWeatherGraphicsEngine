@@ -208,7 +208,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     # GFS, NDFD, NAM 12km (mixed-interval running total buckets)
                     bounds_var_name = ds[time_dim].attrs.get('bounds')
                     
-                    # Robust fallback variable scanner to identify dynamically changing bounds dimensions [input_file_5.py]
+                    # Robust fallback variable scanner to identify dynamically changing bounds dimensions
                     if not bounds_var_name or bounds_var_name not in ds.variables:
                         time_size = ds[time_dim].size
                         for v in ds.variables:
@@ -227,7 +227,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                             bounds_arr = ds[bounds_var_name].values
                             print(f"[DEBUG] Loaded bounds variable '{bounds_var_name}' with shape {bounds_arr.shape}")
                             
-                            # Strategy A: Look for a master bucket spanning exactly 0 to target_hour [input_file_5.py]
+                            # Strategy A: Look for a master bucket spanning exactly 0 to target_hour
                             for i in range(start_idx, len(bounds_arr)):
                                 start_h = float(bounds_arr[i, 0])
                                 end_h = float(bounds_arr[i, 1])
@@ -236,14 +236,14 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                                     print(f"[DEBUG] Strategy A Triggered: Found master 0-to-{target_hour}h bucket at index {i} (bounds: {start_h} -> {end_h})")
                                     break
                             
-                            # Strategy B: If no 0-to-H bucket exists (common at/after Hour 120), [input_file_5.py]
+                            # Strategy B: If no 0-to-H bucket exists (common at/after Hour 120),
                             # gather all non-overlapping contiguous intervals up to the target_hour
                             if not exact_target_match:
                                 print(f"[DEBUG] Strategy A failed (No 0-to-{target_hour}h master bucket found). Triggering Strategy B (backward-stitching)...")
                                 interval_indices = []
                                 current_seeking_end = target_hour
                                 
-                                # Walk backwards from the target hour to stitch intervals together [input_file_5.py]
+                                # Walk backwards from the target hour to stitch intervals together
                                 for i in reversed(range(start_idx, target_idx + 1)):
                                     start_h = float(bounds_arr[i, 0])
                                     end_h = float(bounds_arr[i, 1])
@@ -251,7 +251,7 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                                     if abs(end_h - current_seeking_end) < 0.1:
                                         interval_indices.append(i)
                                         print(f"[DEBUG] Strategy B: Selected interval at index {i} (bounds: {start_h} -> {end_h}, matching end: {current_seeking_end})")
-                                        current_seeking_end = start_h # Next, find the chunk feeding into this one [input_file_5.py]
+                                        current_seeking_end = start_h # Next, find the chunk feeding into this one
                                         if current_seeking_end < 0.01:
                                             print(f"[DEBUG] Strategy B: Backward-stitching completed successfully. Reached 0.0h initialization.")
                                             break
@@ -285,11 +285,17 @@ def get_model_data(target_model, map_type, forecast_setting, product, region):
                     
             subset_day = subset_converted.isel(**{time_dim: time_indices})
             
-            # Explicitly force sum aggregation if we stitched multiple intervals together for precipitation [input_file_5.py]
-            if is_precip and len(time_indices) > 1:
-                print(f"[DEBUG] Explicitly forcing sum aggregation across {len(time_indices)} intervals for Total Precipitation")
-                max_temp_grid = subset_day.sum(dim=time_dim).load()
+            # Force explicit handling for Precipitation accumulations [input_file_5.py]
+            if is_precip:
+                if len(time_indices) > 1:
+                    print(f"[DEBUG] Strategy B Active: Explicitly summing {len(time_indices)} intervals for Total Precipitation.")
+                    max_temp_grid = subset_day.sum(dim=time_dim).load()
+                else:
+                    print(f"[DEBUG] Strategy A Active: Extracting single master accumulation bucket at index {time_indices[0]}.")
+                    # Squeeze out the time dimension since we are using a single index, ensuring it matches grid expectations
+                    max_temp_grid = subset_day.squeeze(dim=time_dim).load()
             else:
+                # Traditional temperature or other non-accumulation variables
                 max_temp_grid = product.aggregate_time(subset_day, time_dim, map_type)
                 
             grid_temp = max_temp_grid.values
